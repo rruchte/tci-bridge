@@ -75,6 +75,7 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
 
         const YAML::Node server = root["server"];
         readOptionalQString(server, "bind", &config->serverBind);
+    	readOptional<bool>(server, "debug", &config->serverDebug);
 
         if (!readOptionalPort(server, "port", &config->serverPort, error))
             return false;
@@ -93,15 +94,63 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
         readOptionalQString(audio, "rx_device", &config->audioRxDevice);
         readOptionalQString(audio, "tx_device", &config->audioTxDevice);
         readOptional<bool>(audio, "debug", &config->audioDebug);
+    	readOptional<int>(audio, "tx_sink_buffer_ms", &config->audioTxSinkBufferMs);
+    	readOptional<int>(audio, "tx_prebuffer_ms", &config->audioTxPrebufferMs);
+    	readOptional<int>(audio, "tx_jitter_buffer_ms", &config->audioTxJitterBufferMs);
+    	readOptional<int>(audio, "tx_drain_interval_ms", &config->audioTxDrainIntervalMs);
 
-        const YAML::Node ptt = root["ptt"];
-        readOptional<bool>(ptt, "tx_audio_keys_ptt", &config->txAudioKeysPtt);
+    	const YAML::Node ptt = root["ptt"];
+    	readOptional<bool>(ptt, "enable_transmit", &config->enableTransmit);
+    	readOptional<bool>(ptt, "tx_audio_keys_ptt", &config->txAudioKeysPtt);
+    	readOptional<int>(ptt, "max_tx_ms", &config->maxTxMs);
+    	readOptional<bool>(ptt, "unkey_on_disconnect", &config->unkeyOnDisconnect);
+
+    	const YAML::Node logging = root["logging"];
+    	readOptional<bool>(logging, "quiet", &config->quiet);
+    	readOptional<bool>(logging, "startup_config", &config->logStartupConfig);
+    	readOptional<bool>(logging, "tx_timing", &config->logTxTiming);
+
+    	if (config->maxTxMs < 1000) {
+    		if (error)
+    			*error = QStringLiteral("ptt.max_tx_ms must be >= 1000");
+    		return false;
+    	}
 
         if (config->pollMs < 50) {
             if (error)
                 *error = QStringLiteral("radio.poll_ms must be >= 50");
             return false;
         }
+
+    	if (config->audioTxSinkBufferMs < 20) {
+    		if (error)
+    			*error = QStringLiteral("audio.tx_sink_buffer_ms must be >= 20");
+    		return false;
+    	}
+
+    	if (config->audioTxPrebufferMs < 0) {
+    		if (error)
+    			*error = QStringLiteral("audio.tx_prebuffer_ms must be >= 0");
+    		return false;
+    	}
+
+    	if (config->audioTxJitterBufferMs < 100) {
+    		if (error)
+    			*error = QStringLiteral("audio.tx_jitter_buffer_ms must be >= 100");
+    		return false;
+    	}
+
+    	if (config->audioTxDrainIntervalMs < 1) {
+    		if (error)
+    			*error = QStringLiteral("audio.tx_drain_interval_ms must be >= 1");
+    		return false;
+    	}
+
+    	if (config->audioTxPrebufferMs >= config->audioTxJitterBufferMs) {
+    		if (error)
+    			*error = QStringLiteral("audio.tx_prebuffer_ms must be less than audio.tx_jitter_buffer_ms");
+    		return false;
+    	}
 
         config->radioBackend = config->radioBackend.trimmed().toLower();
 

@@ -1,6 +1,7 @@
 server:
   bind: 127.0.0.1
   port: 40001
+  debug: false
 
 radio:
   backend: rigctld
@@ -13,6 +14,17 @@ audio:
   rx_device: "USB Audio CODEC"
   tx_device: "USB Audio CODEC"
   debug: false
+  tx_sink_buffer_ms: 300
+  tx_prebuffer_ms: 200
+  tx_jitter_buffer_ms: 5000
 
 ptt:
+  enable_transmit: false
   tx_audio_keys_ptt: false
+  max_tx_ms: 30000
+  unkey_on_disconnect: true
+
+logging:
+  quiet: false
+  startup_config: true
+  tx_timing: false

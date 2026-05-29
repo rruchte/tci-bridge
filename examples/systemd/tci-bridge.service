@@ -1,0 +1,43 @@
+# Example systemd unit for tci-bridge.
+#
+# Copy to:
+#   /etc/systemd/system/tci-bridge.service
+#
+# Then edit User=, Group=, and SupplementaryGroups= for your system.
+#
+# On Arch/Manjaro, serial devices are commonly accessible via the "uucp" group.
+# On Debian/Ubuntu, the equivalent is often "dialout".
+#
+# Check available groups with:
+#   getent group audio
+#   getent group uucp
+#   getent group dialout
+
+[Unit]
+Description=TCI Bridge for JS8Call / Hamlib
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tci-bridge --config /etc/tci-bridge.yml
+
+Restart=on-failure
+RestartSec=2
+
+# CHANGE THESE FOR YOUR SYSTEM.
+# Do not use User=%i in this non-template unit.
+User=myuser
+Group=mygroup
+
+# Use only groups that exist on your system.
+# Arch/Manjaro example:
+SupplementaryGroups=audio uucp
+
+# Debian/Ubuntu example:
+# SupplementaryGroups=audio dialout
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

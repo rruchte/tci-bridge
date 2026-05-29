@@ -4,8 +4,9 @@
 
 struct AppConfig
 {
-	QString serverBind = "0.0.0.0";
+	QString serverBind = "127.0.0.1";
 	quint16 serverPort = 40001;
+	bool serverDebug = false;
 
 	QString radioBackend = "null";
 	QString rigctldHost = "127.0.0.1";
@@ -17,7 +18,20 @@ struct AppConfig
 	QString audioTxDevice;
 	bool audioDebug = false;
 
+	// TX audio buffering / jitter control.
+	int audioTxSinkBufferMs = 300;
+	int audioTxPrebufferMs = 200;
+	int audioTxJitterBufferMs = 5000;
+	int audioTxDrainIntervalMs = 2;
+
+	bool enableTransmit = false;
 	bool txAudioKeysPtt = false;
+	int maxTxMs = 30000;
+	bool unkeyOnDisconnect = true;
+
+	bool quiet = false;
+	bool logStartupConfig = true;
+	bool logTxTiming = false;
 
 	static AppConfig defaults();
 	static bool loadYamlFile(const QString &path, AppConfig *config, QString *error);
