@@ -1,0 +1,18 @@
+server:
+  bind: 127.0.0.1
+  port: 40001
+
+radio:
+  backend: rigctld
+  rigctld_host: 127.0.0.1
+  rigctld_port: 4532
+  poll_ms: 1000
+  debug: false
+
+audio:
+  rx_device: "USB Audio CODEC"
+  tx_device: "USB Audio CODEC"
+  debug: false
+
+ptt:
+  tx_audio_keys_ptt: false
