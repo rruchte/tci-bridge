@@ -91,6 +91,7 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
         readOptional<bool>(radio, "debug", &config->rigctldDebug);
 
         const YAML::Node audio = root["audio"];
+    	readOptionalQString(audio, "mode", &config->audioMode);
         readOptionalQString(audio, "rx_device", &config->audioRxDevice);
         readOptionalQString(audio, "tx_device", &config->audioTxDevice);
         readOptional<bool>(audio, "debug", &config->audioDebug);
@@ -160,6 +161,30 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
                              .arg(config->radioBackend);
             return false;
         }
+
+    	config->audioMode = config->audioMode.trimmed().toLower();
+
+    	if (config->audioMode.isEmpty()) {
+    		config->audioMode = "default";
+    	}
+
+    	if (config->audioMode != "default"
+			&& config->audioMode != "manual"
+			&& config->audioMode != "auto-usb-full-duplex") {
+    		if (error) {
+    			*error = QStringLiteral("Unsupported audio.mode: %1").arg(config->audioMode);
+    		}
+    		return false;
+			}
+
+    	if (config->audioMode == "manual"
+			&& (config->audioRxDevice.trimmed().isEmpty()
+				|| config->audioTxDevice.trimmed().isEmpty())) {
+    		if (error) {
+    			*error = QStringLiteral("audio.mode=manual requires both audio.rx_device and audio.tx_device");
+    		}
+    		return false;
+		}
 
         return true;
     } catch (const YAML::Exception &e) {

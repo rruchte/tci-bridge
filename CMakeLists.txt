@@ -16,6 +16,8 @@ add_executable(tci-bridge
         src/AppConfig.h
         src/AppConfig.cpp
         src/AudioBackend.h
+        src/AudioDeviceResolver.h
+        src/AudioDeviceResolver.cpp
         src/QtAudioBackend.h
         src/QtAudioBackend.cpp
         src/RadioBackend.h

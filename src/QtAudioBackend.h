@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AudioBackend.h"
+#include "AudioDeviceResolver.h"
 
 #include <QAudioDevice>
 #include <QAudioFormat>
@@ -12,6 +13,12 @@
 #include <QTimer>
 
 #include <memory>
+
+enum class AudioSelectionMode {
+	Default,
+	Manual,
+	AutoUsbFullDuplex
+};
 
 class QtAudioBackend final : public AudioBackend
 {
@@ -30,6 +37,8 @@ public:
 	void setTxPrebufferMs(int ms);
 	void setTxJitterBufferMs(int ms);
 	void setTxDrainIntervalMs(int ms);
+
+	void setAudioSelectionMode(const QString &mode);
 
 	bool startRx() override;
 	void stopRx() override;
@@ -55,8 +64,14 @@ private slots:
 private:
 	bool chooseRxDevice(QAudioDevice *selected) const;
 	bool chooseTxDevice(QAudioDevice *selected) const;
+	bool resolveAutoAudioIfNeeded() const;
 
-	QAudioFormat chooseAudioFormat(const QAudioDevice &device) const;
+	AudioSelectionMode audio_selection_mode_ = AudioSelectionMode::Default;
+
+	mutable bool auto_audio_resolved_ = false;
+	mutable ResolvedAudioDevices auto_audio_devices_;
+
+	static QAudioFormat chooseAudioFormat(const QAudioDevice &device) ;
 	static QString sampleFormatName(QAudioFormat::SampleFormat format);
 
 	QString rx_device_name_;

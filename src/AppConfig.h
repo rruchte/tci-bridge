@@ -14,6 +14,7 @@ struct AppConfig
 	int pollMs = 250;
 	bool rigctldDebug = false;
 
+	QString audioMode = "default";
 	QString audioRxDevice;
 	QString audioTxDevice;
 	bool audioDebug = false;

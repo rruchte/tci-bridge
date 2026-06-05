@@ -11,6 +11,7 @@ radio:
   debug: false
 
 audio:
+  mode: "default"
   rx_device: "USB Audio CODEC"
   tx_device: "USB Audio CODEC"
   debug: false

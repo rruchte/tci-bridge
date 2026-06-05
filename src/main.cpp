@@ -61,6 +61,7 @@ namespace
         qInfo().noquote() << QStringLiteral("  radio.rigctld_port=%1").arg(config.rigctldPort);
         qInfo().noquote() << QStringLiteral("  radio.poll_ms=%1").arg(config.pollMs);
         qInfo().noquote() << QStringLiteral("  radio.debug=%1").arg(config.rigctldDebug ? "true" : "false");
+    	qInfo().noquote() << QStringLiteral("  audio.mode=%1").arg(config.audioMode);
         qInfo().noquote() << QStringLiteral("  audio.rx_device=\"%1\"").arg(config.audioRxDevice);
         qInfo().noquote() << QStringLiteral("  audio.tx_device=\"%1\"").arg(config.audioTxDevice);
         qInfo().noquote() << QStringLiteral("  audio.debug=%1").arg(config.audioDebug ? "true" : "false");
@@ -82,11 +83,25 @@ namespace
     		return false;
     	}
 
+    	if (config.audioMode != "default"
+			&& config.audioMode != "manual"
+			&& config.audioMode != "auto-usb-full-duplex") {
+    			qCritical() << "Unsupported audio.mode:" << config.audioMode;
+    			return false;
+		}
+
+    	if (config.audioMode == "manual"
+			&& (config.audioRxDevice.trimmed().isEmpty()
+				|| config.audioTxDevice.trimmed().isEmpty())) {
+    			qCritical() << "audio.mode=manual requires both audio.rx_device and audio.tx_device";
+    			return false;
+		}
+
     	if (config.enableTransmit &&
 			(config.serverBind == "0.0.0.0" || config.serverBind == "::")) {
     		qWarning() << "Transmit is enabled while TCI server is bound to all interfaces."
 					   << "Consider binding to 127.0.0.1 unless remote access is intentional.";
-			}
+		}
 
     	if (config.enableTransmit && !config.txAudioKeysPtt) {
     		qWarning() << "Transmit is enabled, but tx_audio_keys_ptt is disabled."
@@ -216,6 +231,12 @@ int main(int argc, char *argv[])
         "Log rigctld transactions."
     );
 
+	QCommandLineOption audioModeOption(
+		QStringList() << "audio-mode",
+		"Audio device selection mode: default, manual, or auto-usb-full-duplex.",
+		"mode"
+	);
+
     QCommandLineOption audioRxOption(
         QStringList() << "audio-rx",
         "RX audio input device name. Partial match is allowed.",
@@ -304,6 +325,7 @@ int main(int argc, char *argv[])
     parser.addOption(rigPortOption);
     parser.addOption(pollOption);
     parser.addOption(rigDebugOption);
+	parser.addOption(audioModeOption);
     parser.addOption(audioRxOption);
     parser.addOption(audioTxOption);
     parser.addOption(audioDebugOption);
@@ -373,6 +395,9 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(rigDebugOption))
         config.rigctldDebug = true;
+
+	if (parser.isSet(audioModeOption))
+		config.audioMode = parser.value(audioModeOption).trimmed().toLower();
 
     if (parser.isSet(audioRxOption))
         config.audioRxDevice = parser.value(audioRxOption);
@@ -493,6 +518,7 @@ int main(int argc, char *argv[])
 
     QtAudioBackend audio;
 
+	audio.setAudioSelectionMode(config.audioMode);
     audio.setRxDeviceName(config.audioRxDevice);
     audio.setTxDeviceName(config.audioTxDevice);
     audio.setDebug(config.audioDebug);

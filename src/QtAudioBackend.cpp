@@ -1,3 +1,4 @@
+#include "AudioDeviceResolver.h"
 #include "QtAudioBackend.h"
 #include "PcmConvert.h"
 
@@ -15,11 +16,28 @@ QtAudioBackend::QtAudioBackend(QObject *parent)
 void QtAudioBackend::setRxDeviceName(const QString &name)
 {
 	rx_device_name_ = name.trimmed();
+	auto_audio_resolved_ = false;
 }
 
 void QtAudioBackend::setTxDeviceName(const QString &name)
 {
 	tx_device_name_ = name.trimmed();
+	auto_audio_resolved_ = false;
+}
+
+void QtAudioBackend::setAudioSelectionMode(const QString &mode)
+{
+	const QString normalized = mode.trimmed().toLower();
+
+	if (normalized == "auto-usb-full-duplex") {
+		audio_selection_mode_ = AudioSelectionMode::AutoUsbFullDuplex;
+	} else if (normalized == "manual") {
+		audio_selection_mode_ = AudioSelectionMode::Manual;
+	} else {
+		audio_selection_mode_ = AudioSelectionMode::Default;
+	}
+
+	auto_audio_resolved_ = false;
 }
 
 void QtAudioBackend::setDebug(bool enabled)
@@ -413,9 +431,16 @@ void QtAudioBackend::onRxReadyRead()
 bool QtAudioBackend::chooseRxDevice(QAudioDevice *selected) const
 {
 	const QList<QAudioDevice> inputs = QMediaDevices::audioInputs();
+	if (inputs.isEmpty()) return false;
 
-	if (inputs.isEmpty())
-		return false;
+	if (audio_selection_mode_ == AudioSelectionMode::AutoUsbFullDuplex) {
+		if (!resolveAutoAudioIfNeeded()) {
+			return false;
+		}
+
+		*selected = auto_audio_devices_.input;
+		return !selected->isNull();
+	}
 
 	if (!rx_device_name_.isEmpty()) {
 		for (const QAudioDevice &device : inputs) {
@@ -432,8 +457,11 @@ bool QtAudioBackend::chooseRxDevice(QAudioDevice *selected) const
 			}
 		}
 
-		qWarning() << "Requested RX audio input was not found:"
-				   << rx_device_name_;
+		qWarning() << "Requested RX audio input was not found:" << rx_device_name_;
+
+		if (audio_selection_mode_ == AudioSelectionMode::Manual) {
+			return false;
+		}
 	}
 
 	*selected = QMediaDevices::defaultAudioInput();
@@ -443,9 +471,16 @@ bool QtAudioBackend::chooseRxDevice(QAudioDevice *selected) const
 bool QtAudioBackend::chooseTxDevice(QAudioDevice *selected) const
 {
 	const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
+	if (outputs.isEmpty()) return false;
 
-	if (outputs.isEmpty())
-		return false;
+	if (audio_selection_mode_ == AudioSelectionMode::AutoUsbFullDuplex) {
+		if (!resolveAutoAudioIfNeeded()) {
+			return false;
+		}
+
+		*selected = auto_audio_devices_.output;
+		return !selected->isNull();
+	}
 
 	if (!tx_device_name_.isEmpty()) {
 		for (const QAudioDevice &device : outputs) {
@@ -462,15 +497,18 @@ bool QtAudioBackend::chooseTxDevice(QAudioDevice *selected) const
 			}
 		}
 
-		qWarning() << "Requested TX audio output was not found:"
-				   << tx_device_name_;
+		qWarning() << "Requested TX audio output was not found:" << tx_device_name_;
+
+		if (audio_selection_mode_ == AudioSelectionMode::Manual) {
+			return false;
+		}
 	}
 
 	*selected = QMediaDevices::defaultAudioOutput();
 	return !selected->isNull();
 }
 
-QAudioFormat QtAudioBackend::chooseAudioFormat(const QAudioDevice &device) const
+QAudioFormat QtAudioBackend::chooseAudioFormat(const QAudioDevice &device)
 {
 	QAudioFormat format;
 
@@ -504,11 +542,12 @@ void QtAudioBackend::listAudioDevices()
 		const QAudioFormat preferred = device.preferredFormat();
 
 		qInfo().noquote()
-			<< QStringLiteral("  INPUT: \"%1\" preferred=%2Hz %3ch %4")
-				   .arg(device.description())
-				   .arg(preferred.sampleRate())
-				   .arg(preferred.channelCount())
-				   .arg(sampleFormatName(preferred.sampleFormat()));
+			<< QStringLiteral("  INPUT: \"%1\" id=\"%2\" preferred=%3Hz %4ch %5")
+				.arg(device.description())
+				.arg(AudioDeviceResolver::deviceIdString(device))
+				.arg(preferred.sampleRate())
+				.arg(preferred.channelCount())
+				.arg(sampleFormatName(preferred.sampleFormat()));
 	}
 
 	qInfo().noquote() << "";
@@ -520,12 +559,42 @@ void QtAudioBackend::listAudioDevices()
 		const QAudioFormat preferred = device.preferredFormat();
 
 		qInfo().noquote()
-			<< QStringLiteral("  OUTPUT: \"%1\" preferred=%2Hz %3ch %4")
-				   .arg(device.description())
-				   .arg(preferred.sampleRate())
-				   .arg(preferred.channelCount())
-				   .arg(sampleFormatName(preferred.sampleFormat()));
+			<< QStringLiteral("  OUTPUT: \"%1\" id=\"%2\" preferred=%3Hz %4ch %5")
+				.arg(device.description())
+				.arg(AudioDeviceResolver::deviceIdString(device))
+				.arg(preferred.sampleRate())
+				.arg(preferred.channelCount())
+				.arg(sampleFormatName(preferred.sampleFormat()));
 	}
+}
+
+bool QtAudioBackend::resolveAutoAudioIfNeeded() const
+{
+	if (auto_audio_resolved_) {
+		return !auto_audio_devices_.input.isNull() && !auto_audio_devices_.output.isNull();
+	}
+
+	QString error;
+	auto resolved = AudioDeviceResolver::resolveAutoUsbFullDuplex(48000, 1, &error);
+
+	if (!resolved) {
+		qWarning().noquote() << "Auto USB audio selection failed:" << error;
+		return false;
+	}
+
+	auto_audio_devices_ = *resolved;
+	auto_audio_resolved_ = true;
+
+	qInfo().noquote()
+		<< "Auto-selected USB full-duplex audio:"
+		<< "input=" << QString("\"%1\"").arg(auto_audio_devices_.input.description())
+		<< "inputId=" << QString("\"%1\"").arg(auto_audio_devices_.inputId)
+		<< "output=" << QString("\"%1\"").arg(auto_audio_devices_.output.description())
+		<< "outputId=" << QString("\"%1\"").arg(auto_audio_devices_.outputId)
+		<< "score=" << auto_audio_devices_.score
+		<< "reasons=" << auto_audio_devices_.reasons.join(QStringLiteral(", "));
+
+	return true;
 }
 
 QAudioFormat QtAudioBackend::rxFormat() const
