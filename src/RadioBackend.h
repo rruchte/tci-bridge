@@ -28,10 +28,14 @@ public:
 
 	virtual void setPollingSuspended(bool suspended) = 0;
 
+	virtual bool online() const = 0;
+
 signals:
 	void frequencyChanged(qint64 hz);
 	void txFrequencyChanged(qint64 hz);
 	void splitChanged(bool enabled);
 	void modeChanged(QString mode);
 	void pttChanged(bool enabled);
+
+	void onlineChanged(bool online);
 };

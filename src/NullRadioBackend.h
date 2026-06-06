@@ -26,6 +26,8 @@ public:
 
 	void setPollingSuspended(bool suspended) override;
 
+	bool online() const override { return true; }
+
 private:
 	qint64 frequency_hz_ = 14074000;
 	qint64 tx_frequency_hz_ = 14074000;

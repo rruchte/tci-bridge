@@ -30,6 +30,7 @@ public:
 	void setDebug(bool enabled);
 	void setQuiet(bool enabled);
 	void setTxTimingLogEnabled(bool enabled);
+	bool transmitActive() const;
 
 signals:
 	void txAudioFrame(QByteArray pcm);
@@ -49,6 +50,8 @@ private slots:
 	void onPttChanged(bool enabled);
 
 	void onTxWatchdogExpired();
+
+	void onRadioOnlineChanged(bool online);
 
 private:
 	void sendStartupBurst(QWebSocket *socket);
@@ -78,6 +81,8 @@ private:
 	bool tx_audio_keys_ptt_ = false;
 	bool unkey_on_disconnect_ = true;
 	int max_tx_ms_ = 30000;
+
+	bool pending_unkey_on_radio_online_ = false;
 
 	bool debug_ = false;
 	bool quiet_ = false;

@@ -122,6 +122,12 @@ void RigctldBackend::setupWorker()
 			},
 			Qt::QueuedConnection);
 
+	connect(worker_, &RigctldWorker::connectedChanged,
+		this, &RigctldBackend::updateConnected);
+
+	connect(worker_, &RigctldWorker::radioUsableChanged,
+			this, &RigctldBackend::updateRadioUsable);
+
 	worker_thread_.setObjectName(QStringLiteral("RigctldWorkerThread"));
 	worker_thread_.start();
 }
@@ -215,6 +221,35 @@ void RigctldBackend::setPtt(bool enabled)
 	}
 
 	emit requestSetPtt(enabled);
+}
+
+bool RigctldBackend::online() const
+{
+	return connected_ && radio_usable_;
+}
+
+void RigctldBackend::updateConnected(bool connected)
+{
+	if (connected_ == connected) return;
+
+	connected_ = connected;
+
+	if (!connected_) {
+		radio_usable_ = false;
+		emit onlineChanged(false);
+	}
+}
+
+void RigctldBackend::updateRadioUsable(bool usable)
+{
+	const bool oldOnline = online();
+
+	radio_usable_ = usable;
+
+	const bool newOnline = online();
+	if (oldOnline != newOnline) {
+		emit onlineChanged(newOnline);
+	}
 }
 
 void RigctldBackend::setPollingSuspended(bool suspended)

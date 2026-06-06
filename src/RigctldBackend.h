@@ -38,6 +38,8 @@ public:
 	void setPollingSuspended(bool suspended) override;
 	void setDebug(bool enabled);
 
+	bool online() const override;
+
 	signals:
 		void requestStart(QString host, quint16 port, int pollMs);
 	void requestStop();
@@ -59,6 +61,9 @@ private:
 	void updateMode(const QString &mode);
 	void updatePtt(bool enabled);
 
+	void updateConnected(bool connected);
+	void updateRadioUsable(bool usable);
+
 private:
 	QString host_;
 	quint16 port_ = 4532;
@@ -66,6 +71,9 @@ private:
 
 	RigctldWorker *worker_ = nullptr;
 	QThread worker_thread_;
+
+	bool connected_ = false;
+	bool radio_usable_ = false;
 
 	qint64 frequency_hz_ = 0;
 	qint64 tx_frequency_hz_ = 0;

@@ -22,6 +22,8 @@ TciServer::TciServer(RadioBackend *radio, QObject *parent) :
 
 	connect(radio_, &RadioBackend::pttChanged, this, &TciServer::onPttChanged);
 
+	connect(radio_, &RadioBackend::onlineChanged, this, &TciServer::onRadioOnlineChanged);
+
 	tx_watchdog_.setSingleShot(true);
 
 	connect(&tx_watchdog_, &QTimer::timeout, this, &TciServer::onTxWatchdogExpired);
@@ -223,6 +225,43 @@ void TciServer::onPttChanged(bool enabled)
 	broadcastText(QStringLiteral("trx:0,%1;").arg(boolText(enabled)));
 }
 
+void TciServer::onRadioOnlineChanged(bool online)
+{
+	qInfo() << "Radio online state changed:" << online;
+
+	if (!online) {
+		if (transmitActive()) {
+			qWarning() << "Radio went offline during active TX/audio; aborting TX and scheduling unkey";
+			pending_unkey_on_radio_online_ = true;
+			stopTransmit(QStringLiteral("radio went offline"), true);
+		}
+
+		return;
+	}
+
+	if (pending_unkey_on_radio_online_) {
+		qWarning() << "Radio came online; forcing pending PTT off";
+
+		pending_unkey_on_radio_online_ = false;
+
+		stopTxAudioStream(QStringLiteral("pending unkey after radio online"));
+		disarmTxWatchdog();
+		tx_owner_.clear();
+
+		if (radio_) {
+			radio_->setPollingSuspended(false);
+			radio_->setPtt(false);
+		}
+
+		broadcastText(QStringLiteral("trx:0,false;"));
+	}
+
+	// Push fresh state to existing clients after recovery.
+	for (QWebSocket *client : std::as_const(clients_)) {
+		sendState(client);
+	}
+}
+
 void TciServer::sendStartupBurst(QWebSocket *socket)
 {
 	sendText(socket, "protocol:ExpertSDR3 TCI;");
@@ -244,6 +283,11 @@ void TciServer::setTransmitEnabled(bool enabled)
 
 	if (!transmit_enabled_)
 		stopTransmit(QStringLiteral("transmit disabled"), true);
+}
+
+bool TciServer::transmitActive() const
+{
+	return tx_owner_ || tx_audio_owner_ || tx_watchdog_.isActive() || (radio_ && radio_->ptt());
 }
 
 void TciServer::setTxAudioKeysPtt(bool enabled)
@@ -732,18 +776,26 @@ void TciServer::stopTransmit(const QString &reason, bool forcePttOff)
 {
 	stopTxAudioStream(reason);
 	disarmTxWatchdog();
-
 	tx_owner_.clear();
 
-	if (radio_)
+	if (radio_) {
 		radio_->setPollingSuspended(false);
+	}
 
-	if (!radio_)
-		return;
+	if (!radio_) return;
 
 	if (forcePttOff || radio_->ptt()) {
 		qWarning().noquote() << "Force unkey:" << reason;
+
+		if (!radio_->online()) {
+			qWarning() << "Radio is offline; will force PTT off when radio comes online";
+			pending_unkey_on_radio_online_ = true;
+			broadcastText(QStringLiteral("trx:0,false;"));
+			return;
+		}
+
 		radio_->setPtt(false);
+		broadcastText(QStringLiteral("trx:0,false;"));
 	}
 }
 

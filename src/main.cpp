@@ -3,7 +3,9 @@
 
 #include <QByteArray>
 #include <QLoggingCategory>
+#include <QMediaDevices>
 #include <QMessageLogContext>
+#include <QTimer>
 
 #include <cstdio>
 #include <cstdlib>
@@ -577,13 +579,76 @@ int main(int argc, char *argv[])
 						 audio.stopTx();
 					 });
 
-    if (!audio.startRx()) {
-        qWarning() << "RX audio did not start. Continuing without RX audio.";
-    }
+	QTimer audioRetryTimer;
+	audioRetryTimer.setTimerType(Qt::CoarseTimer);
+	audioRetryTimer.setInterval(3000);
 
-    if (!audio.startTx()) {
-        qWarning() << "TX audio did not start. Continuing without TX audio.";
-    }
+	bool rxAudioRunning = false;
+	bool txAudioRunning = false;
+
+	auto startAudioPaths = [&]() {
+		bool needRetry = false;
+
+		if (!rxAudioRunning) {
+			if (audio.startRx()) {
+				rxAudioRunning = true;
+				qInfo() << "RX audio path online";
+			} else {
+				needRetry = true;
+				qWarning() << "RX audio did not start. Will retry.";
+			}
+		}
+
+		if (!txAudioRunning) {
+			if (audio.startTx()) {
+				txAudioRunning = true;
+				qInfo() << "TX audio path online";
+			} else {
+				needRetry = true;
+				qWarning() << "TX audio did not start. Will retry.";
+			}
+		}
+
+		if (needRetry && !audioRetryTimer.isActive()) {
+			audioRetryTimer.start();
+		}
+
+		if (!needRetry && audioRetryTimer.isActive()) {
+			audioRetryTimer.stop();
+		}
+	};
+
+	auto restartAudioPaths = [&](const QString &reason) {
+		qWarning().noquote() << "Restarting audio paths:" << reason;
+
+		if (server.transmitActive()) {
+			server.forceUnkey(QStringLiteral("audio path changed: %1").arg(reason));
+		}
+
+		audio.stopRx();
+		audio.stopTx();
+
+		rxAudioRunning = false;
+		txAudioRunning = false;
+
+		startAudioPaths();
+	};
+
+	QObject::connect(&audioRetryTimer, &QTimer::timeout, &app, [&]() {
+		startAudioPaths();
+	});
+
+	QMediaDevices mediaDevices;
+
+	QObject::connect(&mediaDevices, &QMediaDevices::audioInputsChanged, &app, [&]() {
+		restartAudioPaths(QStringLiteral("audio inputs changed"));
+	});
+
+	QObject::connect(&mediaDevices, &QMediaDevices::audioOutputsChanged, &app, [&]() {
+		restartAudioPaths(QStringLiteral("audio outputs changed"));
+	});
+
+	startAudioPaths();
 
     return app.exec();
 }

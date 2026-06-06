@@ -40,6 +40,8 @@ signals:
 	void error(QString message);
 	void slowCall(QString operation, qint64 elapsedMs);
 
+	void radioUsableChanged(bool usable);
+
 private:
 	bool ensureConnected();
 
@@ -59,12 +61,18 @@ private:
 						  QString &response,
 						  const QString &description);
 
-	void pollFrequency();
+	bool pollFrequency();
+	bool pollMode();
+	bool pollPtt();
+
 	void pollTxFrequencyBestEffort();
 	void pollSplitBestEffort();
 	void pollOptionalStateOnce();
-	void pollMode();
-	void pollPtt();
+
+	void notePollSuccess();
+	void notePollFailure(const QString &operation, const QString &response = QString());
+	void setRadioUsable(bool usable, const QString &reason = QString());
+	void forceReconnect(const QString &reason);
 
 	static QString normalizeModeForRigctld(const QString &mode);
 	static QString normalizeModeFromRigctld(const QString &mode);
@@ -78,6 +86,10 @@ private:
 	QTimer *poll_timer_ = nullptr;
 
 	bool connected_ = false;
+	bool radio_usable_ = false;
+	int consecutive_poll_failures_ = 0;
+	int max_consecutive_poll_failures_ = 3;
+	
 	bool debug_ = false;
 	bool polling_suspended_ = false;
 

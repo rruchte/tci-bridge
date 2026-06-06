@@ -47,26 +47,26 @@ void RigctldWorker::start(QString host, quint16 port, int pollMs)
 
 void RigctldWorker::stop()
 {
-	if (poll_timer_) {
-		poll_timer_->stop();
-		poll_timer_->deleteLater();
-		poll_timer_ = nullptr;
-	}
+    if (poll_timer_) {
+        poll_timer_->stop();
+        poll_timer_->deleteLater();
+        poll_timer_ = nullptr;
+    }
 
-	if (socket_) {
-		socket_->disconnectFromHost();
+    if (socket_) {
+        socket_->disconnectFromHost();
+        if (socket_->state() != QAbstractSocket::UnconnectedState)
+            socket_->waitForDisconnected(250);
+        socket_->deleteLater();
+        socket_ = nullptr;
+    }
 
-		if (socket_->state() != QAbstractSocket::UnconnectedState)
-			socket_->waitForDisconnected(250);
+    setRadioUsable(false, QStringLiteral("worker stopped"));
 
-		socket_->deleteLater();
-		socket_ = nullptr;
-	}
-
-	if (connected_) {
-		connected_ = false;
-		emit connectedChanged(false);
-	}
+    if (connected_) {
+        connected_ = false;
+        emit connectedChanged(false);
+    }
 }
 
 void RigctldWorker::setDebug(bool enabled)
@@ -92,12 +92,13 @@ bool RigctldWorker::ensureConnected()
 	socket_->connectToHost(host_, port_);
 
 	if (!socket_->waitForConnected(1000)) {
-		const QString message =
-			QStringLiteral("rigctld connection failed: %1")
-				.arg(socket_->errorString());
+		const QString message = QStringLiteral("rigctld connection failed: %1")
+			.arg(socket_->errorString());
 
 		qWarning().noquote() << "[RigctldWorker]" << message;
 		emit error(message);
+
+		setRadioUsable(false, message);
 
 		if (connected_) {
 			connected_ = false;
@@ -390,50 +391,107 @@ void RigctldWorker::setPollingSuspended(bool suspended)
 			<< (polling_suspended_ ? "suspended" : "resumed");
 }
 
+void RigctldWorker::setRadioUsable(bool usable, const QString &reason)
+{
+	if (radio_usable_ == usable) return;
+
+	radio_usable_ = usable;
+
+	if (usable) {
+		qInfo().noquote() << "[RigctldWorker] radio usable";
+	} else {
+		qWarning().noquote() << "[RigctldWorker] radio not usable"
+							 << (reason.isEmpty() ? QString() : QStringLiteral("reason=%1").arg(reason));
+	}
+
+	emit radioUsableChanged(usable);
+}
+
+void RigctldWorker::notePollSuccess()
+{
+	consecutive_poll_failures_ = 0;
+	setRadioUsable(true);
+}
+
+void RigctldWorker::notePollFailure(const QString &operation, const QString &response)
+{
+	++consecutive_poll_failures_;
+
+	qWarning().noquote()
+		<< "[RigctldWorker] poll failure"
+		<< operation
+		<< "count=" << consecutive_poll_failures_
+		<< "response=" << response;
+
+	if (consecutive_poll_failures_ >= max_consecutive_poll_failures_) {
+		setRadioUsable(false, QStringLiteral("%1 failed %2 times")
+			.arg(operation)
+			.arg(consecutive_poll_failures_));
+
+		forceReconnect(QStringLiteral("%1 failed repeatedly").arg(operation));
+		consecutive_poll_failures_ = 0;
+	}
+}
+
+void RigctldWorker::forceReconnect(const QString &reason)
+{
+	qWarning().noquote() << "[RigctldWorker] forcing rigctld TCP reconnect:" << reason;
+
+	if (socket_) {
+		socket_->abort();
+	}
+
+	if (connected_) {
+		connected_ = false;
+		emit connectedChanged(false);
+	}
+}
+
 void RigctldWorker::poll()
 {
-	if (polling_suspended_)
-		return;
+	if (polling_suspended_) return;
 
 	QElapsedTimer timer;
 	timer.start();
 
-	pollFrequency();
-	pollMode();
-	pollPtt();
+	const bool freqOk = pollFrequency();
+	const bool modeOk = pollMode();
+	const bool pttOk = pollPtt();
 
-	if (!optional_state_polled_) {
+	if (freqOk && modeOk && pttOk) {
+		notePollSuccess();
+	}
+
+	if (!optional_state_polled_ && radio_usable_) {
 		optional_state_polled_ = true;
 		pollOptionalStateOnce();
 	}
 
 	const qint64 elapsed = timer.elapsed();
-
 	if (elapsed > 100) {
-		qWarning() << "[RigctldWorker] slow poll:"
-				   << elapsed << "ms";
-
+		qWarning() << "[RigctldWorker] slow poll:" << elapsed << "ms";
 		emit slowCall(QStringLiteral("poll"), elapsed);
 	}
 }
 
-void RigctldWorker::pollFrequency()
+bool RigctldWorker::pollFrequency()
 {
-	const QString response =
-		transact(QStringLiteral("f"),
-				 1000,
-				 QStringLiteral("poll frequency"));
+	const QString response = transact(QStringLiteral("f"), 1000, QStringLiteral("poll frequency"));
 
 	bool ok = false;
 	const qint64 hz = response.trimmed().toLongLong(&ok);
 
-	if (!ok || hz <= 0)
-		return;
+	if (!ok || hz <= 0) {
+		notePollFailure(QStringLiteral("poll frequency"), response);
+		return false;
+	}
 
 	if (frequency_hz_ != hz) {
 		frequency_hz_ = hz;
 		emit frequencyChanged(hz);
 	}
+
+	return true;
 }
 
 void RigctldWorker::pollOptionalStateOnce()
@@ -522,39 +580,41 @@ void RigctldWorker::pollSplitBestEffort()
 	}
 }
 
-void RigctldWorker::pollMode()
+bool RigctldWorker::pollMode()
 {
-	const QStringList lines =
-		transactLines(QStringLiteral("m"),
-					  1000,
-					  QStringLiteral("poll mode"));
+	const QStringList lines = transactLines(QStringLiteral("m"), 1000, QStringLiteral("poll mode"));
 
-	if (lines.isEmpty())
-		return;
+	if (lines.isEmpty()) {
+		notePollFailure(QStringLiteral("poll mode"), QStringLiteral("<empty>"));
+		return false;
+	}
 
 	const QString newMode = normalizeModeFromRigctld(lines.at(0));
 
-	if (newMode.isEmpty())
-		return;
+	if (newMode.isEmpty()) {
+		notePollFailure(QStringLiteral("poll mode"), lines.join(QStringLiteral(" | ")));
+		return false;
+	}
 
 	if (mode_ != newMode) {
 		mode_ = newMode;
 		emit modeChanged(mode_);
 	}
+
+	return true;
 }
 
-void RigctldWorker::pollPtt()
+bool RigctldWorker::pollPtt()
 {
-	const QString response =
-		transact(QStringLiteral("t"),
-				 1000,
-				 QStringLiteral("poll PTT"));
+	const QString response = transact(QStringLiteral("t"), 1000, QStringLiteral("poll PTT"));
 
 	bool ok = false;
 	const int value = response.trimmed().toInt(&ok);
 
-	if (!ok)
-		return;
+	if (!ok) {
+		notePollFailure(QStringLiteral("poll PTT"), response);
+		return false;
+	}
 
 	const bool enabled = value != 0;
 
@@ -562,6 +622,8 @@ void RigctldWorker::pollPtt()
 		ptt_ = enabled;
 		emit pttChanged(enabled);
 	}
+
+	return true;
 }
 
 QString RigctldWorker::normalizeModeForRigctld(const QString &mode)
