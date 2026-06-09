@@ -19,7 +19,6 @@ struct AppConfig
 	QString audioTxDevice;
 	bool audioDebug = false;
 
-	// TX audio buffering / jitter control.
 	int audioTxSinkBufferMs = 300;
 	int audioTxPrebufferMs = 200;
 	int audioTxJitterBufferMs = 5000;
@@ -35,5 +34,8 @@ struct AppConfig
 	bool logTxTiming = false;
 
 	static AppConfig defaults();
+
 	static bool loadYamlFile(const QString &path, AppConfig *config, QString *error);
+
+	bool normalizeAndValidate(QString *error);
 };

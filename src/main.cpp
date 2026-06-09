@@ -77,45 +77,25 @@ namespace
     	qInfo().noquote() << QStringLiteral("  ptt.unkey_on_disconnect=%1").arg(config.unkeyOnDisconnect ? "true" : "false");
     }
 
-	bool validateRuntimeConfig(const AppConfig &config)
+	void logRuntimeConfigWarnings(const AppConfig &config)
     {
-    	if (config.audioTxPrebufferMs >= config.audioTxJitterBufferMs) {
-    		qCritical() << "Invalid audio buffering:"
-						<< "audio.tx_prebuffer_ms must be less than audio.tx_jitter_buffer_ms";
-    		return false;
+    	if (config.enableTransmit && (config.serverBind == "0.0.0.0" || config.serverBind == "::")) {
+    		qWarning()
+				<< "Transmit is enabled while TCI server is bound to all interfaces."
+				<< "Consider binding to 127.0.0.1 unless remote access is intentional.";
     	}
 
-    	if (config.audioMode != "default"
-			&& config.audioMode != "manual"
-			&& config.audioMode != "auto-usb-full-duplex") {
-    			qCritical() << "Unsupported audio.mode:" << config.audioMode;
-    			return false;
-		}
-
-    	if (config.audioMode == "manual"
-			&& (config.audioRxDevice.trimmed().isEmpty()
-				|| config.audioTxDevice.trimmed().isEmpty())) {
-    			qCritical() << "audio.mode=manual requires both audio.rx_device and audio.tx_device";
-    			return false;
-		}
-
-    	if (config.enableTransmit &&
-			(config.serverBind == "0.0.0.0" || config.serverBind == "::")) {
-    		qWarning() << "Transmit is enabled while TCI server is bound to all interfaces."
-					   << "Consider binding to 127.0.0.1 unless remote access is intentional.";
-		}
-
     	if (config.enableTransmit && !config.txAudioKeysPtt) {
-    		qWarning() << "Transmit is enabled, but tx_audio_keys_ptt is disabled."
-					   << "The client must assert PTT explicitly with trx/ptt commands.";
+    		qWarning()
+				<< "Transmit is enabled, but tx_audio_keys_ptt is disabled."
+				<< "The client must assert PTT explicitly with trx/ptt commands.";
     	}
 
     	if (config.radioBackend == "null" && config.enableTransmit) {
-    		qWarning() << "Transmit is enabled but radio.backend=null."
-					   << "PTT commands will not control real hardware.";
+    		qWarning()
+				<< "Transmit is enabled but radio.backend=null."
+				<< "PTT commands will not control real hardware.";
     	}
-
-    	return true;
     }
 
 	void filteredQtMessageHandler(
@@ -316,6 +296,11 @@ int main(int argc, char *argv[])
 		"Log TX audio frame timing diagnostics."
 	);
 
+	QCommandLineOption printConfigOption(
+		QStringList() << "print-config",
+		"Print the effective configuration."
+	);
+
     parser.addOption(configOption);
     parser.addOption(listAudioOption);
 	parser.addOption(checkConfigOption);
@@ -342,6 +327,7 @@ int main(int argc, char *argv[])
 	parser.addOption(quietOption);
 	parser.addOption(noStartupConfigOption);
 	parser.addOption(txTimingOption);
+	parser.addOption(printConfigOption);
 
     parser.process(app);
 
@@ -458,11 +444,19 @@ int main(int argc, char *argv[])
         return 2;
     }
 
-	if (!validateRuntimeConfig(config))
+	QString validationError;
+	if (!config.normalizeAndValidate(&validationError)) {
+		qCritical().noquote() << validationError;
 		return 2;
+	}
+
+	logRuntimeConfigWarnings(config);
 
 	if (parser.isSet(checkConfigOption)) {
-		logConfig(config);
+		if (parser.isSet(printConfigOption)) {
+			logConfig(config);
+		}
+
 		qInfo() << "Configuration OK";
 		return 0;
 	}

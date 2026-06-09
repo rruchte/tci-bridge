@@ -95,6 +95,7 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
         readOptionalQString(audio, "rx_device", &config->audioRxDevice);
         readOptionalQString(audio, "tx_device", &config->audioTxDevice);
         readOptional<bool>(audio, "debug", &config->audioDebug);
+    	
     	readOptional<int>(audio, "tx_sink_buffer_ms", &config->audioTxSinkBufferMs);
     	readOptional<int>(audio, "tx_prebuffer_ms", &config->audioTxPrebufferMs);
     	readOptional<int>(audio, "tx_jitter_buffer_ms", &config->audioTxJitterBufferMs);
@@ -111,82 +112,7 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
     	readOptional<bool>(logging, "startup_config", &config->logStartupConfig);
     	readOptional<bool>(logging, "tx_timing", &config->logTxTiming);
 
-    	if (config->maxTxMs < 1000) {
-    		if (error)
-    			*error = QStringLiteral("ptt.max_tx_ms must be >= 1000");
-    		return false;
-    	}
-
-        if (config->pollMs < 50) {
-            if (error)
-                *error = QStringLiteral("radio.poll_ms must be >= 50");
-            return false;
-        }
-
-    	if (config->audioTxSinkBufferMs < 20) {
-    		if (error)
-    			*error = QStringLiteral("audio.tx_sink_buffer_ms must be >= 20");
-    		return false;
-    	}
-
-    	if (config->audioTxPrebufferMs < 0) {
-    		if (error)
-    			*error = QStringLiteral("audio.tx_prebuffer_ms must be >= 0");
-    		return false;
-    	}
-
-    	if (config->audioTxJitterBufferMs < 100) {
-    		if (error)
-    			*error = QStringLiteral("audio.tx_jitter_buffer_ms must be >= 100");
-    		return false;
-    	}
-
-    	if (config->audioTxDrainIntervalMs < 1) {
-    		if (error)
-    			*error = QStringLiteral("audio.tx_drain_interval_ms must be >= 1");
-    		return false;
-    	}
-
-    	if (config->audioTxPrebufferMs >= config->audioTxJitterBufferMs) {
-    		if (error)
-    			*error = QStringLiteral("audio.tx_prebuffer_ms must be less than audio.tx_jitter_buffer_ms");
-    		return false;
-    	}
-
-        config->radioBackend = config->radioBackend.trimmed().toLower();
-
-        if (config->radioBackend != "null" && config->radioBackend != "rigctld") {
-            if (error)
-                *error = QStringLiteral("Unsupported radio.backend: %1")
-                             .arg(config->radioBackend);
-            return false;
-        }
-
-    	config->audioMode = config->audioMode.trimmed().toLower();
-
-    	if (config->audioMode.isEmpty()) {
-    		config->audioMode = "default";
-    	}
-
-    	if (config->audioMode != "default"
-			&& config->audioMode != "manual"
-			&& config->audioMode != "auto-usb-full-duplex") {
-    		if (error) {
-    			*error = QStringLiteral("Unsupported audio.mode: %1").arg(config->audioMode);
-    		}
-    		return false;
-			}
-
-    	if (config->audioMode == "manual"
-			&& (config->audioRxDevice.trimmed().isEmpty()
-				|| config->audioTxDevice.trimmed().isEmpty())) {
-    		if (error) {
-    			*error = QStringLiteral("audio.mode=manual requires both audio.rx_device and audio.tx_device");
-    		}
-    		return false;
-		}
-
-        return true;
+    	return config->normalizeAndValidate(error);
     } catch (const YAML::Exception &e) {
         if (error)
             *error = QStringLiteral("YAML error in %1: %2")
@@ -200,4 +126,99 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
                          .arg(e.what());
         return false;
     }
+}
+
+bool AppConfig::normalizeAndValidate(QString *error)
+{
+    serverBind = serverBind.trimmed();
+    radioBackend = radioBackend.trimmed().toLower();
+    rigctldHost = rigctldHost.trimmed();
+    audioMode = audioMode.trimmed().toLower();
+    audioRxDevice = audioRxDevice.trimmed();
+    audioTxDevice = audioTxDevice.trimmed();
+
+    if (serverBind.isEmpty()) {
+        if (error) *error = QStringLiteral("server.bind must not be empty");
+        return false;
+    }
+
+    if (serverPort == 0) {
+        if (error) *error = QStringLiteral("server.port must be between 1 and 65535");
+        return false;
+    }
+
+    if (radioBackend != "null" && radioBackend != "rigctld") {
+        if (error) *error = QStringLiteral("Unsupported radio.backend: %1").arg(radioBackend);
+        return false;
+    }
+
+    if (radioBackend == "rigctld") {
+        if (rigctldHost.isEmpty()) {
+            if (error) *error = QStringLiteral("radio.rigctld_host must not be empty when radio.backend=rigctld");
+            return false;
+        }
+
+        if (rigctldPort == 0) {
+            if (error) *error = QStringLiteral("radio.rigctld_port must be between 1 and 65535");
+            return false;
+        }
+    }
+
+    if (pollMs < 50) {
+        if (error) *error = QStringLiteral("radio.poll_ms must be >= 50");
+        return false;
+    }
+
+    if (audioMode.isEmpty()) {
+        audioMode = "default";
+    }
+
+    if (audioMode != "default"
+        && audioMode != "manual"
+        && audioMode != "auto-usb-full-duplex") {
+        if (error) *error = QStringLiteral("Unsupported audio.mode: %1").arg(audioMode);
+        return false;
+    }
+
+    if (audioMode == "manual"
+        && (audioRxDevice.isEmpty() || audioTxDevice.isEmpty())) {
+        if (error) {
+            *error = QStringLiteral("audio.mode=manual requires both audio.rx_device and audio.tx_device");
+        }
+        return false;
+    }
+
+    if (audioTxSinkBufferMs < 20) {
+        if (error) *error = QStringLiteral("audio.tx_sink_buffer_ms must be >= 20");
+        return false;
+    }
+
+    if (audioTxPrebufferMs < 0) {
+        if (error) *error = QStringLiteral("audio.tx_prebuffer_ms must be >= 0");
+        return false;
+    }
+
+    if (audioTxJitterBufferMs < 100) {
+        if (error) *error = QStringLiteral("audio.tx_jitter_buffer_ms must be >= 100");
+        return false;
+    }
+
+    if (audioTxDrainIntervalMs < 1) {
+        if (error) *error = QStringLiteral("audio.tx_drain_interval_ms must be >= 1");
+        return false;
+    }
+
+    if (audioTxPrebufferMs >= audioTxJitterBufferMs) {
+        if (error) {
+            *error = QStringLiteral("audio.tx_prebuffer_ms must be less than audio.tx_jitter_buffer_ms");
+        }
+        return false;
+    }
+
+    if (maxTxMs < 1000) {
+        if (error) *error = QStringLiteral("ptt.max_tx_ms must be >= 1000");
+        return false;
+    }
+
+    return true;
 }
