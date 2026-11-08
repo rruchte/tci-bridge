@@ -559,7 +559,9 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 						stopTxAudioStream(
 							QStringLiteral("TX audio ownership change"));
 
-						tx_audio_owner_ = socket;
+								tx_audio_owner_ = socket;
+				rx_audio_packet_count_ = 0;
+				tx_chrono_packet_count_ = 0;
 
 						if (radio_)
 							radio_->setPollingSuspended(true);
@@ -764,7 +766,7 @@ void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 		audio_accumulator_.remove(0, bytesPerFrame);
 
 		const QByteArray frame =
-				TciStream::makeRxAudioFrame(chunk, 0, audio_sample_rate_, audio_sample_type_, audio_channels_);
+				TciStream::makeRxAudioFrame(chunk, 0, audio_sample_rate_, audio_sample_type_, audio_channels_, rx_audio_packet_count_++);
 
 		for (QWebSocket *client: std::as_const(audio_clients_))
 		{
@@ -782,6 +784,8 @@ void TciServer::stopTxAudioStream(const QString &reason)
 			<< reason;
 
 	tx_audio_owner_ = nullptr;
+	rx_audio_packet_count_ = 0;
+	tx_chrono_packet_count_ = 0;
 
 	emit txAudioStopped();
 
