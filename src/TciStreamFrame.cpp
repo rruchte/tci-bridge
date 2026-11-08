@@ -112,6 +112,12 @@ namespace TciStream
         result.count = readU32LE(frame, 32);
         result.payload = frame.mid(TCI_STREAM_HEADER_BYTES);
 
+        // TX_CHRONO requests samples but carries no PCM payload.
+        if (result.streamType == TX_CHRONO) {
+            result.valid = true;
+            return result;
+        }
+
         const int bps = bytesPerSample(result.sampleType);
 
         if (bps <= 0)
