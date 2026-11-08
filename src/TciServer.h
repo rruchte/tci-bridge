@@ -101,4 +101,6 @@ private:
 	quint32 audio_samples_per_frame_ = 512;
 
 	QByteArray audio_accumulator_;
+	quint32 rx_audio_packet_count_ = 0;
+	quint32 tx_chrono_packet_count_ = 0;
 };
