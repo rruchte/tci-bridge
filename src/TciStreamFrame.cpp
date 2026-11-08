@@ -46,7 +46,8 @@ namespace TciStream
         quint32 receiver,
         quint32 sampleRate,
         quint32 sampleType,
-        quint32 channels
+        quint32 channels,
+        quint32 count
     )
     {
         const int bps = bytesPerSample(sampleType);
@@ -65,10 +66,31 @@ namespace TciStream
         appendU32LE(frame, RX_AUDIO_STREAM);
         appendU32LE(frame, channels);
 
-        for (int i = 0; i < 8; ++i)
+        appendU32LE(frame, count);
+        for (int i = 0; i < 7; ++i)
             appendU32LE(frame, 0);
 
         frame.append(pcm);
+        return frame;
+    }
+
+    QByteArray makeTxChronoFrame(quint32 receiver, quint32 sampleRate,
+                                  quint32 sampleType, quint32 channels,
+                                  quint32 samples, quint32 count)
+    {
+        QByteArray frame;
+        frame.reserve(TCI_STREAM_HEADER_BYTES);
+        appendU32LE(frame, receiver);
+        appendU32LE(frame, sampleRate);
+        appendU32LE(frame, sampleType);
+        appendU32LE(frame, 0); // codec
+        appendU32LE(frame, 0); // crc
+        appendU32LE(frame, samples);
+        appendU32LE(frame, TX_CHRONO);
+        appendU32LE(frame, channels);
+        appendU32LE(frame, count);
+        for (int i = 0; i < 7; ++i)
+            appendU32LE(frame, 0);
         return frame;
     }
 
@@ -87,6 +109,7 @@ namespace TciStream
         result.sampleCount = readU32LE(frame, 20);
         result.streamType = readU32LE(frame, 24);
         result.channels = readU32LE(frame, 28);
+        result.count = readU32LE(frame, 32);
         result.payload = frame.mid(TCI_STREAM_HEADER_BYTES);
 
         const int bps = bytesPerSample(result.sampleType);
