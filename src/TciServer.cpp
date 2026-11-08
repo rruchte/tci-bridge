@@ -201,7 +201,7 @@ void TciServer::onSocketDisconnected()
 void TciServer::onFrequencyChanged(qint64 hz)
 {
 	broadcastText(QStringLiteral("vfo:0,0,%1;").arg(hz));
-	broadcastText(QStringLiteral("dds:0,0,%1;").arg(hz));
+	broadcastText(QStringLiteral("dds:0,%1;").arg(hz));
 }
 
 void TciServer::onTxFrequencyChanged(qint64 hz)
@@ -216,7 +216,7 @@ void TciServer::onSplitChanged(bool enabled)
 
 void TciServer::onModeChanged(const QString &mode)
 {
-	broadcastText(QStringLiteral("modulation:0,0,%1;").arg(mode.toLower()));
+	broadcastText(QStringLiteral("modulation:0,%1;").arg(mode.toLower()));
 }
 
 void TciServer::onPttChanged(bool enabled)
@@ -440,8 +440,8 @@ void TciServer::sendState(QWebSocket *socket)
 
 	sendText(socket, QStringLiteral("vfo:0,0,%1;").arg(radio_->frequencyHz()));
 	sendText(socket, QStringLiteral("vfo:0,1,%1;").arg(radio_->txFrequencyHz()));
-	sendText(socket, QStringLiteral("dds:0,0,%1;").arg(radio_->frequencyHz()));
-	sendText(socket, QStringLiteral("modulation:0,0,%1;").arg(radio_->mode().toLower()));
+	sendText(socket, QStringLiteral("dds:0,%1;").arg(radio_->frequencyHz()));
+	sendText(socket, QStringLiteral("modulation:0,%1;").arg(radio_->mode().toLower()));
 	sendText(socket, QStringLiteral("split_enable:0,%1;").arg(boolText(radio_->splitEnabled())));
 	sendText(socket, QStringLiteral("trx:0,%1;").arg(boolText(radio_->ptt())));
 }
@@ -458,51 +458,78 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		return;
 	}
 
-	if (name == "vfo" || name == "dds") {
-		int channel = 0;
+	// TCI 2.1 DDS addresses a receiver, not a VFO channel:
+	//   dds:<receiver>;           read
+	//   dds:<receiver>,<hz>;      set
+	// A rigctld radio does not expose an independent SDR panorama
+	// center frequency, so DDS is mapped to the RX frequency.
+	if (name == "dds") {
+		if (a.size() < 1 || a.size() > 2 || a.at(0) != "0")
+			return;
 
-		if (a.size() >= 2) {
-			bool channelOk = false;
-			const int parsedChannel = a.at(1).toInt(&channelOk);
-
-			if (channelOk)
-				channel = parsedChannel;
-		}
-
-		if (a.size() >= 3) {
+		if (a.size() == 2) {
 			bool ok = false;
-			const qint64 hz = a.at(2).toLongLong(&ok);
-
-			if (ok) {
-				if (channel == 1)
-					radio_->setTxFrequencyHz(hz);
-				else
-					radio_->setFrequencyHz(hz);
-
-				sendText(socket, command.raw);
+			const qint64 hz = a.at(1).toLongLong(&ok);
+			if (!ok || hz <= 0)
 				return;
-			}
+
+			radio_->setFrequencyHz(hz);
 		}
 
-		if (channel == 1) {
-			sendText(socket, QStringLiteral("vfo:0,1,%1;").arg(radio_->txFrequencyHz()));
-		} else {
-			sendText(socket, QStringLiteral("vfo:0,0,%1;").arg(radio_->frequencyHz()));
-		}
-
+		sendText(socket, QStringLiteral("dds:0,%1;").arg(radio_->frequencyHz()));
 		return;
 	}
 
-	if (name == "modulation" || name == "mode")
-	{
-		if (a.size() >= 3)
-		{
-			radio_->setMode(a.at(2));
-			sendText(socket, command.raw);
+	// TCI 2.1 VFO includes both receiver and channel:
+	//   vfo:<receiver>,<channel>;         read
+	//   vfo:<receiver>,<channel>,<hz>;    set
+	// Channel 0 is RX; channel 1 maps to the existing best-effort TX
+	// frequency control/shadow in the radio backend.
+	if (name == "vfo") {
+		if (a.size() < 2 || a.size() > 3 || a.at(0) != "0")
 			return;
+
+		bool channelOk = false;
+		const int channel = a.at(1).toInt(&channelOk);
+		if (!channelOk || (channel != 0 && channel != 1))
+			return;
+
+		if (a.size() == 3) {
+			bool ok = false;
+			const qint64 hz = a.at(2).toLongLong(&ok);
+			if (!ok || hz <= 0)
+				return;
+
+			if (channel == 0)
+				radio_->setFrequencyHz(hz);
+			else
+				radio_->setTxFrequencyHz(hz);
 		}
 
-		sendText(socket, QStringLiteral("modulation:0,0,%1;").arg(radio_->mode().toLower()));
+		const qint64 hz = channel == 0
+			? radio_->frequencyHz()
+			: radio_->txFrequencyHz();
+		sendText(socket, QStringLiteral("vfo:0,%1,%2;").arg(channel).arg(hz));
+		return;
+	}
+
+	// TCI 2.1 MODULATION addresses a receiver, not a VFO channel:
+	//   modulation:<receiver>;           read
+	//   modulation:<receiver>,<mode>;    set
+	if (name == "modulation") {
+		if (a.size() < 1 || a.size() > 2 || a.at(0) != "0")
+			return;
+
+		if (a.size() == 2) {
+			const QString mode = a.at(1).trimmed();
+			if (mode.isEmpty())
+				return;
+
+			radio_->setMode(mode);
+		}
+
+		sendText(socket, QStringLiteral("modulation:0,%1;")
+			.arg(radio_->mode().toLower()));
 		return;
 	}
 
@@ -697,8 +724,6 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 	}
 
 	return;
-
-	sendText(socket, command.raw);
 }
 
 void TciServer::sendText(QWebSocket *socket, const QString &message)
