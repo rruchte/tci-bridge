@@ -103,7 +103,6 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
 
     	const YAML::Node ptt = root["ptt"];
     	readOptional<bool>(ptt, "enable_transmit", &config->enableTransmit);
-    	readOptional<bool>(ptt, "tx_audio_keys_ptt", &config->txAudioKeysPtt);
     	readOptional<int>(ptt, "max_tx_ms", &config->maxTxMs);
     	readOptional<bool>(ptt, "unkey_on_disconnect", &config->unkeyOnDisconnect);
 

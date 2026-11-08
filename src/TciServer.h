@@ -23,7 +23,6 @@ public:
 	bool listen(const QHostAddress &address, quint16 port);
 	void sendRxAudio(const QByteArray &pcm, int sampleRate, int channels);
 	void setTransmitEnabled(bool enabled);
-	void setTxAudioKeysPtt(bool enabled);
 	void setMaxTxMs(int maxTxMs);
 	void setUnkeyOnDisconnect(bool enabled);
 	void forceUnkey(const QString &reason);
@@ -78,7 +77,6 @@ private:
 	static QString semicolon(QString message);
 
 	bool transmit_enabled_ = false;
-	bool tx_audio_keys_ptt_ = false;
 	bool unkey_on_disconnect_ = true;
 	int max_tx_ms_ = 30000;
 

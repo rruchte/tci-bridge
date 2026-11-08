@@ -320,7 +320,6 @@ Recommended live-radio configuration while testing:
 ```yaml
 ptt:
   enable_transmit: false
-  tx_audio_keys_ptt: false
   max_tx_ms: 30000
   unkey_on_disconnect: true
 ```
@@ -330,12 +329,9 @@ Recommended live-radio configuration once PTT testing is intentional:
 ```yaml
 ptt:
   enable_transmit: true
-  tx_audio_keys_ptt: false
   max_tx_ms: 30000
   unkey_on_disconnect: true
 ```
-
-`tx_audio_keys_ptt` should normally remain disabled until TX audio is well tested.
 
 ## RX audio control
 
@@ -446,40 +442,6 @@ audio_stop:0;
 ```
 
 After this, the server stops sending RX audio frames to that client.
-
-## TX audio control
-
-### Start TX audio
-
-Client:
-
-```text
-tx_audio_start:0;
-```
-
-Server echoes:
-
-```text
-tx_audio_start:0;
-```
-
-If `ptt.tx_audio_keys_ptt` is enabled in configuration and transmit is enabled, this also asserts PTT.
-
-### Stop TX audio
-
-Client:
-
-```text
-tx_audio_stop:0;
-```
-
-Server echoes:
-
-```text
-tx_audio_stop:0;
-```
-
-If `ptt.tx_audio_keys_ptt` is enabled in configuration, this also clears PTT.
 
 ## Binary stream frame layout
 

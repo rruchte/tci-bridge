@@ -145,25 +145,24 @@ void TciServer::onBinaryMessageReceived(const QByteArray &message)
 	if (!clientCanTransmit(socket, "TX audio frame"))
 		return;
 
-	if (!tx_audio_owner_) {
-		qWarning() << "TX audio denied because no client requested tx_audio_start";
+	// Only the client that keyed the radio may send TX audio.
+	if (!tx_owner_ || tx_owner_ != socket) {
+		qWarning() << "TX audio denied: client does not own TX";
 		return;
 	}
 
-	if (tx_audio_owner_ != socket) {
-		qWarning() << "TX audio denied because another client owns TX audio";
+	// The current transmission must have selected TCI audio.
+	if (!tx_audio_owner_ || tx_audio_owner_ != socket) {
+		qWarning() << "TX audio denied: TCI audio is not selected";
 		return;
 	}
 
-	if (tx_audio_keys_ptt_ && !radio_->ptt() && !tx_owner_) {
-		if (!requestPtt(socket, true, "TX audio frame"))
-			return;
+	if (!radio_->ptt()) {
+		qWarning() << "TX audio denied: radio is not transmitting";
+		return;
 	}
 
-	// Logical PTT state is enough. Rigctld hardware state may lag, and should
-	// never block the audio path.
-	if (radio_->ptt() || tx_owner_)
-		armTxWatchdog("TX audio frame");
+	armTxWatchdog("TX audio frame");
 
 	logTxFrameTiming(frame);
 
@@ -264,14 +263,19 @@ void TciServer::onRadioOnlineChanged(bool online)
 
 void TciServer::sendStartupBurst(QWebSocket *socket)
 {
-	sendText(socket, "protocol:ExpertSDR3 TCI;");
-	sendText(socket, "version:1.9;");
-	sendText(socket, "device:0,tci-bridge;");
+	sendText(socket, "protocol:tci-bridge,2.1;");
+	sendText(socket, "device:tci-bridge;");
 	sendText(socket, "receive_only:false;");
 	sendText(socket, "trx_count:1;");
 	sendText(socket, "channels_count:1;");
-	sendText(socket, "vfo_limits:0,0,100000,60000000;");
-	sendText(socket, "if_limits:0,0,-48000,48000;");
+
+	// TODO Replace with actual supported limits if known.
+	sendText(socket, "vfo_limits:100000,60000000;");
+	sendText(socket, "if_limits:-48000,48000;");
+
+	// TODO Must reflect the actual radio's supported modes.
+	sendText(socket, "modulations_list:AM,LSB,USB,CW,FM;");
+
 	sendText(socket, "ready;");
 }
 
@@ -288,13 +292,6 @@ void TciServer::setTransmitEnabled(bool enabled)
 bool TciServer::transmitActive() const
 {
 	return tx_owner_ || tx_audio_owner_ || tx_watchdog_.isActive() || (radio_ && radio_->ptt());
-}
-
-void TciServer::setTxAudioKeysPtt(bool enabled)
-{
-	tx_audio_keys_ptt_ = enabled;
-
-	qInfo() << "TX audio keys PTT" << (tx_audio_keys_ptt_ ? "ENABLED" : "DISABLED");
 }
 
 void TciServer::setMaxTxMs(int maxTxMs)
@@ -328,40 +325,58 @@ void TciServer::forceUnkey(const QString &reason)
 	stopTransmit(reason, true);
 }
 
-bool TciServer::requestPtt(QWebSocket *socket, bool enabled, const QString &reason)
+bool TciServer::requestPtt(QWebSocket *socket,
+						   bool enabled,
+						   const QString &reason)
 {
-	if (enabled && !transmit_enabled_) {
-		qWarning().noquote()
-			<< "PTT request denied because transmit is disabled:"
-			<< reason;
-
-		broadcastText("trx:0,false;");
-		return false;
-	}
-
 	if (enabled) {
+		if (!transmit_enabled_) {
+			qWarning().noquote()
+				<< "PTT request denied because transmit is disabled:"
+				<< reason;
+
+			if (socket)
+				sendText(socket, QStringLiteral("trx:0,%1;")
+							 .arg(boolText(radio_ && radio_->ptt())));
+
+			return false;
+		}
+
 		if (tx_owner_ && tx_owner_ != socket) {
 			qWarning().noquote()
 				<< "PTT request denied because another client owns TX:"
 				<< reason;
 
 			if (socket)
-				sendText(socket, QStringLiteral("trx:0,%1;").arg(boolText(radio_->ptt())));
+				sendText(socket, QStringLiteral("trx:0,%1;")
+							 .arg(boolText(radio_ && radio_->ptt())));
 
 			return false;
 		}
 
 		tx_owner_ = socket;
 
-		qWarning().noquote() << "PTT ON:" << reason;
+		qInfo().noquote() << "PTT ON:" << reason;
 
-		radio_->setPtt(true);
+		if (radio_)
+			radio_->setPtt(true);
+
 		armTxWatchdog(reason);
+
 		return true;
+	}
+
+	// Never allow a different client to release another client's TX.
+	if (tx_owner_ && tx_owner_ != socket) {
+		qWarning().noquote()
+			<< "PTT OFF denied because another client owns TX:"
+			<< reason;
+		return false;
 	}
 
 	qInfo().noquote() << "PTT OFF:" << reason;
 
+	stopTxAudioStream(QStringLiteral("PTT OFF"));
 	disarmTxWatchdog();
 	tx_owner_.clear();
 
@@ -493,18 +508,50 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 
 	if (name == "trx" || name == "ptt")
 	{
-		if (a.size() >= 2)
-		{
-			const QString value = a.last().trimmed().toLower();
-
-			const bool enabled = value == "true" || value == "1" || value == "on" || value == "tx";
-
-			requestPtt(socket, enabled, QStringLiteral("client command: %1").arg(command.raw));
-			sendText(socket, QStringLiteral("trx:0,%1;").arg(boolText(radio_->ptt())));
+		if (a.size() < 2) {
+			sendText(socket,
+					 QStringLiteral("trx:0,%1;")
+						 .arg(boolText(radio_->ptt())));
 			return;
 		}
 
-		sendText(socket, QStringLiteral("trx:0,%1;").arg(boolText(radio_->ptt())));
+		// The second argument is TX enabled.
+		// The optional third argument selects the audio source.
+		const QString value = a.at(1).trimmed().toLower();
+		const QString source =
+			a.size() >= 3 ? a.at(2).trimmed().toLower() : QString();
+
+		const bool enabled =
+			value == "true" || value == "1" ||
+			value == "on" || value == "tx";
+
+		if (enabled) {
+			if (requestPtt(socket, true, command.raw)) {
+				if (source == "tci") {
+					if (tx_audio_owner_ != socket) {
+						stopTxAudioStream(
+							QStringLiteral("TX audio ownership change"));
+
+						tx_audio_owner_ = socket;
+
+						if (radio_)
+							radio_->setPollingSuspended(true);
+
+						emit txAudioStarted();
+					}
+				} else {
+					// TCI audio is not selected as the transmit source.
+					stopTxAudioStream(
+						QStringLiteral("TX source changed"));
+				}
+			}
+		} else {
+			requestPtt(socket, false, command.raw);
+		}
+
+		sendText(socket,
+				 QStringLiteral("trx:0,%1;")
+					 .arg(boolText(radio_->ptt())));
 		return;
 	}
 
@@ -630,43 +677,6 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		return;
 	}
 
-	if (name == "tx_audio_start")
-	{
-		if (tx_audio_owner_ && tx_audio_owner_ != socket) {
-			qWarning() << "TX audio start denied because another client owns TX audio";
-			sendText(socket, QStringLiteral("tx_audio_start:0,false;"));
-			return;
-		}
-
-		tx_audio_owner_ = socket;
-
-		if (radio_)
-			radio_->setPollingSuspended(true);
-
-		qInfo() << "TX audio start requested; owner =" << socket;
-
-		emit txAudioStarted();
-
-		sendText(socket, command.raw);
-
-		if (tx_audio_keys_ptt_)
-			requestPtt(socket, true, "tx_audio_start");
-
-		return;
-	}
-
-	if (name == "tx_audio_stop")
-	{
-		stopTxAudioStreamForSocket(socket, QStringLiteral("tx_audio_stop"));
-
-		sendText(socket, command.raw);
-
-		if (tx_audio_keys_ptt_)
-			requestPtt(socket, false, "tx_audio_stop");
-
-		return;
-	}
-
 	if (isCompatibilityEchoCommand(name)) {
 		if (debug_) {
 			qInfo().noquote()
@@ -682,15 +692,11 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		warned_unknown_commands_.insert(name);
 
 		qWarning().noquote()
-			<< "Unhandled TCI command, echoing for compatibility:"
-			<< command.raw
-			<< "name=" << command.name
-			<< "args=" << command.args;
-	} else if (debug_) {
-		qInfo().noquote()
-			<< "Repeated unhandled TCI command, echoing:"
+			<< "Unsupported TCI command:"
 			<< command.raw;
 	}
+
+	return;
 
 	sendText(socket, command.raw);
 }

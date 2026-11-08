@@ -21,7 +21,6 @@ audio:
 
 ptt:
   enable_transmit: false
-  tx_audio_keys_ptt: false
   max_tx_ms: 30000
   unkey_on_disconnect: true
 

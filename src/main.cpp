@@ -72,7 +72,6 @@ namespace
     	qInfo().noquote() << QStringLiteral("  audio.tx_jitter_buffer_ms=%1").arg(config.audioTxJitterBufferMs);
     	qInfo().noquote() << QStringLiteral("  audio.tx_drain_interval_ms=%1").arg(config.audioTxDrainIntervalMs);
     	qInfo().noquote() << QStringLiteral("  ptt.enable_transmit=%1").arg(config.enableTransmit ? "true" : "false");
-    	qInfo().noquote() << QStringLiteral("  ptt.tx_audio_keys_ptt=%1").arg(config.txAudioKeysPtt ? "true" : "false");
     	qInfo().noquote() << QStringLiteral("  ptt.max_tx_ms=%1").arg(config.maxTxMs);
     	qInfo().noquote() << QStringLiteral("  ptt.unkey_on_disconnect=%1").arg(config.unkeyOnDisconnect ? "true" : "false");
     }
@@ -83,12 +82,6 @@ namespace
     		qWarning()
 				<< "Transmit is enabled while TCI server is bound to all interfaces."
 				<< "Consider binding to 127.0.0.1 unless remote access is intentional.";
-    	}
-
-    	if (config.enableTransmit && !config.txAudioKeysPtt) {
-    		qWarning()
-				<< "Transmit is enabled, but tx_audio_keys_ptt is disabled."
-				<< "The client must assert PTT explicitly with trx/ptt commands.";
     	}
 
     	if (config.radioBackend == "null" && config.enableTransmit) {
@@ -499,7 +492,6 @@ int main(int argc, char *argv[])
 	server.setDebug(config.serverDebug);
 	server.setQuiet(config.quiet);
 	server.setTransmitEnabled(config.enableTransmit);
-	server.setTxAudioKeysPtt(config.txAudioKeysPtt);
 	server.setMaxTxMs(config.maxTxMs);
 	server.setUnkeyOnDisconnect(config.unkeyOnDisconnect);
 	server.setTxTimingLogEnabled(config.logTxTiming);

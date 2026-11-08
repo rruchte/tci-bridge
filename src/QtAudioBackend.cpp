@@ -388,6 +388,9 @@ void QtAudioBackend::drainTxAudio()
 				<< "buffered=" << tx_buffer_.size()
 				<< "bytesFree=" << tx_sink_->bytesFree()
 				<< "state=" << tx_sink_->state()
+				<< "sinkError=" << tx_sink_->error()
+				<< "bytesFree=" << tx_sink_->bytesFree()
+				<< "bytesWritten=" << written
 				<< "primed=" << tx_output_primed_
 				<< "streamActive=" << tx_stream_active_
 				<< "underruns=" << tx_buffer_underruns_
