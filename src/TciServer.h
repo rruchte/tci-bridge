@@ -105,6 +105,7 @@ private:
 		QByteArray accumulator;
 	};
 	QHash<QWebSocket *, AudioClientState> audio_clients_;
+	QSet<QWebSocket *> audio_stream_clients_;
 	QTimer tx_watchdog_;
 	QTimer tx_chrono_timer_;
 	QElapsedTimer tx_chrono_clock_;
