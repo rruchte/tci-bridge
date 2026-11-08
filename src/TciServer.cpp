@@ -566,7 +566,10 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 							QStringLiteral("TX audio ownership change"));
 
 						tx_audio_owner_ = socket;
-						rx_audio_packet_count_ = 0;
+						for (auto it = audio_clients_.begin(); it != audio_clients_.end(); ++it) {
+							it.value().packetCount = 0;
+							it.value().accumulator.clear();
+						}
 						tx_chrono_packet_count_ = 0;
 
 						if (radio_)
@@ -629,7 +632,7 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 
 	if (name == "audio_start")
 	{
-		audio_clients_.insert(socket);
+		audio_clients_.insert(socket, AudioClientState{});
 		sendText(socket, command.raw);
 		qInfo() << "Enabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
@@ -643,82 +646,50 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		return;
 	}
 
-	if (name == "audio_samplerate")
+	if (name == "audio_samplerate" ||
+	    name == "audio_stream_sample_type" ||
+	    name == "audio_stream_channels" ||
+	    name == "audio_stream_samples")
 	{
-		if (!a.isEmpty())
-		{
-			bool ok = false;
-			const quint32 rate = a.at(0).toUInt(&ok);
+		// Audio settings belong to the requesting connection, even before
+		// audio_start. A second client must never change another's stream.
+		AudioClientState &state = audio_clients_[socket];
 
-			if (ok && rate > 0)
-				audio_sample_rate_ = rate;
+		if (name == "audio_samplerate") {
+			// The current Qt audio backend delivers 48-kHz PCM. Do not
+			// claim sample rates that are not actually resampled.
+			if (a.size() == 1 && a.at(0) == "48000")
+				state.sampleRate = 48000;
+			sendText(socket, QStringLiteral("audio_samplerate:%1;").arg(state.sampleRate));
+			return;
 		}
 
-		sendText(socket, QStringLiteral("audio_samplerate:%1;").arg(audio_sample_rate_));
-		return;
-	}
+		if (name == "audio_stream_sample_type") {
+			if (a.size() == 1 && a.at(0).compare("int16", Qt::CaseInsensitive) == 0)
+				state.sampleType = TciStream::INT16;
+			sendText(socket, "audio_stream_sample_type:int16;");
+			return;
+		}
 
-	if (name == "audio_stream_sample_type")
-	{
-		if (!a.isEmpty())
-		{
-			const QString type = a.at(0).trimmed().toLower();
+		if (name == "audio_stream_channels") {
+			if (a.size() == 1 && a.at(0) == "1")
+				state.channels = 1;
+			sendText(socket, QStringLiteral("audio_stream_channels:%1;").arg(state.channels));
+			return;
+		}
 
-			if (type == "int16")
-			{
-				audio_sample_type_ = TciStream::INT16;
+		if (name == "audio_stream_samples") {
+			if (a.size() == 1) {
+				bool ok = false;
+				const int requested = a.at(0).toInt(&ok);
+				if (ok) {
+					state.samplesPerFrame = static_cast<quint32>(qBound(100, requested, 2048));
+					state.accumulator.clear();
+				}
 			}
-			else
-			{
-				qWarning() << "Only int16 is currently supported";
-			}
+			sendText(socket, QStringLiteral("audio_stream_samples:%1;").arg(state.samplesPerFrame));
+			return;
 		}
-
-		QString typeName = "int16";
-
-		if (audio_sample_type_ == TciStream::INT24)
-			typeName = "int24";
-		else if (audio_sample_type_ == TciStream::INT32)
-			typeName = "int32";
-		else if (audio_sample_type_ == TciStream::FLOAT32)
-			typeName = "float32";
-
-		sendText(socket, QStringLiteral("audio_stream_sample_type:%1;").arg(typeName));
-		return;
-	}
-
-	if (name == "audio_stream_channels")
-	{
-		if (!a.isEmpty())
-		{
-			bool ok = false;
-			const quint32 requested = a.at(0).toUInt(&ok);
-
-			if (ok && (requested == 1 || requested == 2))
-				audio_channels_ = requested;
-			else
-				qWarning() << "Unsupported requested audio channel count:" << a.at(0);
-		}
-
-		sendText(socket, QStringLiteral("audio_stream_channels:%1;").arg(audio_channels_));
-		return;
-	}
-
-	if (name == "audio_stream_samples")
-	{
-		if (!a.isEmpty())
-		{
-			bool ok = false;
-			const quint32 requested = a.at(0).toUInt(&ok);
-
-			if (ok && requested >= 100 && requested <= 2048)
-				audio_samples_per_frame_ = requested;
-			else
-				qWarning() << "Unsupported requested audio samples-per-frame:" << a.at(0);
-		}
-
-		sendText(socket, QStringLiteral("audio_stream_samples:%1;").arg(audio_samples_per_frame_));
-		return;
 	}
 
 	if (isCompatibilityEchoCommand(name)) {
@@ -758,34 +729,30 @@ void TciServer::sendText(QWebSocket *socket, const QString &message)
 
 void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 {
-	if (audio_clients_.isEmpty())
+	if (audio_clients_.isEmpty() || pcm.isEmpty())
 		return;
 
-	if (pcm.isEmpty())
+	// The Qt audio backend currently supplies 48-kHz mono signed int16.
+	// Never mislabel source bytes as a requested but unsupported format.
+	if (sampleRate != 48000 || channels != 1 || (pcm.size() % 2) != 0) {
+		qWarning() << "Unsupported source RX PCM format:" << sampleRate
+		           << "Hz," << channels << "channels, bytes=" << pcm.size();
 		return;
+	}
 
-	audio_sample_rate_ = static_cast<quint32>(sampleRate);
-	audio_channels_ = static_cast<quint32>(channels);
+	for (auto it = audio_clients_.begin(); it != audio_clients_.end(); ++it) {
+		AudioClientState &state = it.value();
+		state.accumulator.append(pcm);
+		const int bytesPerFrame = static_cast<int>(state.samplesPerFrame) * 2;
 
-	audio_accumulator_.append(pcm);
+		while (state.accumulator.size() >= bytesPerFrame) {
+			const QByteArray chunk = state.accumulator.left(bytesPerFrame);
+			state.accumulator.remove(0, bytesPerFrame);
 
-	const int bps = TciStream::bytesPerSample(audio_sample_type_);
-	const int bytesPerFrame = static_cast<int>(audio_samples_per_frame_) * bps * static_cast<int>(audio_channels_);
-
-	if (bytesPerFrame <= 0)
-		return;
-
-	while (audio_accumulator_.size() >= bytesPerFrame)
-	{
-		const QByteArray chunk = audio_accumulator_.left(bytesPerFrame);
-		audio_accumulator_.remove(0, bytesPerFrame);
-
-		const QByteArray frame =
-				TciStream::makeRxAudioFrame(chunk, 0, audio_sample_rate_, audio_sample_type_, audio_channels_, rx_audio_packet_count_++);
-
-		for (QWebSocket *client: std::as_const(audio_clients_))
-		{
-			client->sendBinaryMessage(frame);
+			const QByteArray frame = TciStream::makeRxAudioFrame(
+				chunk, 0, state.sampleRate, state.sampleType,
+				state.channels, state.packetCount++);
+			it.key()->sendBinaryMessage(frame);
 		}
 	}
 }
@@ -831,7 +798,10 @@ void TciServer::stopTxAudioStream(const QString &reason)
 	tx_chrono_timer_.stop();
 	tx_chrono_samples_requested_ = 0;
 	tx_audio_owner_ = nullptr;
-	rx_audio_packet_count_ = 0;
+	for (auto it = audio_clients_.begin(); it != audio_clients_.end(); ++it) {
+		it.value().packetCount = 0;
+		it.value().accumulator.clear();
+	}
 	tx_chrono_packet_count_ = 0;
 
 	emit txAudioStopped();
