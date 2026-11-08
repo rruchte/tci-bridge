@@ -1,5 +1,7 @@
 #include "TciStreamFrame.h"
 
+#include <cstring>
+
 namespace
 {
     constexpr int TCI_STREAM_HEADER_UINT32_COUNT = 16;
@@ -26,6 +28,51 @@ namespace
 
 namespace TciStream
 {
+    QByteArray convertRxMonoInt16(const QByteArray &monoPcm,
+                                   quint32 sampleType, quint32 channels)
+    {
+        if (channels != 1 && channels != 2)
+            return {};
+        if (monoPcm.size() % 2 != 0)
+            return {};
+        const int bps = bytesPerSample(sampleType);
+        if (bps == 0)
+            return {};
+
+        QByteArray result;
+        result.reserve(monoPcm.size() / 2 * static_cast<int>(channels) * bps);
+        const auto *data = reinterpret_cast<const unsigned char *>(monoPcm.constData());
+        for (qsizetype i = 0; i < monoPcm.size(); i += 2) {
+            const quint16 bits = quint16(data[i]) | (quint16(data[i + 1]) << 8);
+            const qint16 sample = static_cast<qint16>(bits);
+
+            for (quint32 channel = 0; channel < channels; ++channel) {
+                if (sampleType == INT16) {
+                    result.append(static_cast<char>(bits & 0xff));
+                    result.append(static_cast<char>((bits >> 8) & 0xff));
+                } else if (sampleType == FLOAT32) {
+                    const float value = static_cast<float>(sample) / 32768.0f;
+                    quint32 encoded = 0;
+                    static_assert(sizeof(value) == sizeof(encoded), "float32 required");
+                    std::memcpy(&encoded, &value, sizeof(encoded));
+                    appendU32LE(result, encoded);
+                } else {
+                    // Signed 16-bit audio is extended to 24/32 bits,
+                    // preserving its amplitude and sign.
+                    const qint64 expanded = static_cast<qint64>(sample) *
+                        (sampleType == INT24 ? 256LL : 65536LL);
+                    const quint32 encoded = static_cast<quint32>(expanded);
+                    result.append(static_cast<char>(encoded & 0xff));
+                    result.append(static_cast<char>((encoded >> 8) & 0xff));
+                    result.append(static_cast<char>((encoded >> 16) & 0xff));
+                    if (sampleType == INT32)
+                        result.append(static_cast<char>((encoded >> 24) & 0xff));
+                }
+            }
+        }
+        return result;
+    }
+
     int bytesPerSample(quint32 sampleType)
     {
         switch (sampleType) {
@@ -37,7 +84,7 @@ namespace TciStream
         case FLOAT32:
             return 4;
         default:
-            return 2;
+            return 0;
         }
     }
 
