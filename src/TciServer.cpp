@@ -47,6 +47,7 @@ TciServer::~TciServer()
 
 	clients_.clear();
 	audio_clients_.clear();
+	audio_stream_clients_.clear();
 }
 
 bool TciServer::listen(const QHostAddress &address, quint16 port)
@@ -184,6 +185,7 @@ void TciServer::onSocketDisconnected()
 
 	clients_.remove(socket);
 	audio_clients_.remove(socket);
+	audio_stream_clients_.remove(socket);
 
 	qInfo() << "TCI client disconnected:" << socket->peerAddress().toString() << socket->peerPort();
 
@@ -632,7 +634,9 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 
 	if (name == "audio_start")
 	{
-		audio_clients_.insert(socket, AudioClientState{});
+		if (!audio_clients_.contains(socket))
+			audio_clients_.insert(socket, AudioClientState{});
+		audio_stream_clients_.insert(socket);
 		sendText(socket, command.raw);
 		qInfo() << "Enabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
@@ -640,7 +644,7 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 
 	if (name == "audio_stop")
 	{
-		audio_clients_.remove(socket);
+		audio_stream_clients_.remove(socket);
 		sendText(socket, command.raw);
 		qInfo() << "Disabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
@@ -729,7 +733,7 @@ void TciServer::sendText(QWebSocket *socket, const QString &message)
 
 void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 {
-	if (audio_clients_.isEmpty() || pcm.isEmpty())
+	if (audio_stream_clients_.isEmpty() || pcm.isEmpty())
 		return;
 
 	// The Qt audio backend currently supplies 48-kHz mono signed int16.
@@ -741,6 +745,8 @@ void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 	}
 
 	for (auto it = audio_clients_.begin(); it != audio_clients_.end(); ++it) {
+		if (!audio_stream_clients_.contains(it.key()))
+			continue;
 		AudioClientState &state = it.value();
 		state.accumulator.append(pcm);
 		const int bytesPerFrame = static_cast<int>(state.samplesPerFrame) * 2;
