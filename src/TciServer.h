@@ -29,6 +29,7 @@ public:
 	void setDebug(bool enabled);
 	void setQuiet(bool enabled);
 	void setTxTimingLogEnabled(bool enabled);
+	void setTxChronoEnabled(bool enabled);
 	bool transmitActive() const;
 
 signals:
@@ -49,6 +50,7 @@ private slots:
 	void onPttChanged(bool enabled);
 
 	void onTxWatchdogExpired();
+	void sendTxChrono();
 
 	void onRadioOnlineChanged(bool online);
 
@@ -94,6 +96,10 @@ private:
 	RadioBackend *radio_ = nullptr;
 	QSet<QWebSocket *> audio_clients_;
 	QTimer tx_watchdog_;
+	QTimer tx_chrono_timer_;
+	QElapsedTimer tx_chrono_clock_;
+	quint64 tx_chrono_samples_requested_ = 0;
+	bool tx_chrono_enabled_ = false;
 
 	quint32 audio_sample_rate_ = 48000;
 	quint32 audio_sample_type_ = TciStream::INT16;
