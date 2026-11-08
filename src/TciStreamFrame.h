@@ -52,6 +52,11 @@ namespace TciStream
 	                             quint32 sampleType, quint32 channels,
 	                             quint32 samples, quint32 count);
 
+	// Converts native 48-kHz mono signed int16 PCM into the negotiated
+	// uncompressed audio sample format and channel count.
+	QByteArray convertRxMonoInt16(const QByteArray &monoPcm,
+	                               quint32 sampleType, quint32 channels);
+
 	StreamFrame parseFrame(const QByteArray &frame);
 
 	int bytesPerSample(quint32 sampleType);
