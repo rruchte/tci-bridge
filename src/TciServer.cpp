@@ -459,9 +459,9 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 	const QString &name = command.name;
 	const QStringList &a = command.args;
 
-	if (name == "start" || name == "ready" || name == "initialize" || name == "protocol" || name == "version")
-	{
-		sendText(socket, command.raw);
+	// Clients may request an initial state refresh after connecting.
+	// START is not an acknowledgement of a physical radio power-on.
+	if (name == "start") {
 		sendState(socket);
 		return;
 	}
@@ -625,27 +625,35 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		return;
 	}
 
-	if (name == "stop" || name == "close")
-	{
-		sendText(socket, command.raw);
+	// STOP means stop the device in TCI, not close the WebSocket.
+	// This bridge has no corresponding radio power-control operation.
+	if (name == "stop")
+		return;
+
+	if (name == "close") {
 		socket->close();
 		return;
 	}
 
 	if (name == "audio_start")
 	{
+		if (a.size() != 1 || a.at(0) != "0")
+			return;
 		if (!audio_clients_.contains(socket))
 			audio_clients_.insert(socket, AudioClientState{});
+		audio_clients_[socket].accumulator.clear();
 		audio_stream_clients_.insert(socket);
-		sendText(socket, command.raw);
 		qInfo() << "Enabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
 	}
 
 	if (name == "audio_stop")
 	{
+		if (a.size() != 1 || a.at(0) != "0")
+			return;
 		audio_stream_clients_.remove(socket);
-		sendText(socket, command.raw);
+		if (audio_clients_.contains(socket))
+			audio_clients_[socket].accumulator.clear();
 		qInfo() << "Disabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
 	}
@@ -691,6 +699,8 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 				const int requested = a.at(0).toInt(&ok);
 				if (ok) {
 					state.channels = static_cast<quint32>(qBound(1, requested, 2));
+					if (state.channels == 2 && (state.samplesPerFrame & 1U))
+						--state.samplesPerFrame;
 					state.accumulator.clear();
 				}
 			}
@@ -704,6 +714,8 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 				const int requested = a.at(0).toInt(&ok);
 				if (ok) {
 					state.samplesPerFrame = static_cast<quint32>(qBound(100, requested, 2048));
+					if (state.channels == 2 && (state.samplesPerFrame & 1U))
+						--state.samplesPerFrame;
 					state.accumulator.clear();
 				}
 			}
@@ -712,16 +724,6 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		}
 	}
 
-	if (isCompatibilityEchoCommand(name)) {
-		if (debug_) {
-			qInfo().noquote()
-				<< "Compatibility echo for unsupported TCI command:"
-				<< command.raw;
-		}
-
-		sendText(socket, command.raw);
-		return;
-	}
 
 	if (!warned_unknown_commands_.contains(name)) {
 		warned_unknown_commands_.insert(name);
@@ -941,43 +943,6 @@ void TciServer::broadcastText(const QString &message)
 
 	for (QWebSocket *client: std::as_const(clients_))
 		client->sendTextMessage(framed);
-}
-
-bool TciServer::isCompatibilityEchoCommand(const QString &name) const
-{
-	static const QSet<QString> commands = {
-		QStringLiteral("rx_enable"),
-		QStringLiteral("rx_sensitivity"),
-		QStringLiteral("rx_filter_band"),
-		QStringLiteral("rx_filter_enable"),
-
-		QStringLiteral("agc_mode"),
-		QStringLiteral("agc_gain"),
-		QStringLiteral("preamp"),
-		QStringLiteral("attenuator"),
-
-		QStringLiteral("volume"),
-		QStringLiteral("mute"),
-		QStringLiteral("drive"),
-		QStringLiteral("mon"),
-
-		QStringLiteral("rit_enable"),
-		QStringLiteral("xit_enable"),
-		QStringLiteral("rit_offset"),
-		QStringLiteral("xit_offset"),
-		QStringLiteral("if"),
-		QStringLiteral("if_shift"),
-
-		QStringLiteral("spot"),
-		QStringLiteral("tune"),
-
-		QStringLiteral("waterfall_start"),
-		QStringLiteral("waterfall_stop"),
-		QStringLiteral("iq_start"),
-		QStringLiteral("iq_stop")
-	};
-
-	return commands.contains(name);
 }
 
 void TciServer::setTxTimingLogEnabled(bool enabled)
