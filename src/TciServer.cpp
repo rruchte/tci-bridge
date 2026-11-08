@@ -669,15 +669,31 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		}
 
 		if (name == "audio_stream_sample_type") {
-			if (a.size() == 1 && a.at(0).compare("int16", Qt::CaseInsensitive) == 0)
-				state.sampleType = TciStream::INT16;
-			sendText(socket, "audio_stream_sample_type:int16;");
+			if (a.size() == 1) {
+				const QString requested = a.at(0).trimmed().toLower();
+				if (requested == "int16") state.sampleType = TciStream::INT16;
+				else if (requested == "int24") state.sampleType = TciStream::INT24;
+				else if (requested == "int32") state.sampleType = TciStream::INT32;
+				else if (requested == "float32") state.sampleType = TciStream::FLOAT32;
+				state.accumulator.clear();
+			}
+			QString current = "int16";
+			if (state.sampleType == TciStream::INT24) current = "int24";
+			else if (state.sampleType == TciStream::INT32) current = "int32";
+			else if (state.sampleType == TciStream::FLOAT32) current = "float32";
+			sendText(socket, QStringLiteral("audio_stream_sample_type:%1;").arg(current));
 			return;
 		}
 
 		if (name == "audio_stream_channels") {
-			if (a.size() == 1 && a.at(0) == "1")
-				state.channels = 1;
+			if (a.size() == 1) {
+				bool ok = false;
+				const int requested = a.at(0).toInt(&ok);
+				if (ok) {
+					state.channels = static_cast<quint32>(qBound(1, requested, 2));
+					state.accumulator.clear();
+				}
+			}
 			sendText(socket, QStringLiteral("audio_stream_channels:%1;").arg(state.channels));
 			return;
 		}
@@ -749,14 +765,22 @@ void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 			continue;
 		AudioClientState &state = it.value();
 		state.accumulator.append(pcm);
-		const int bytesPerFrame = static_cast<int>(state.samplesPerFrame) * 2;
+		// Stream.length counts individual sample values across channels.
+		// The mono source must therefore contribute N/channels time samples.
+		const int monoSamples = static_cast<int>(state.samplesPerFrame / state.channels);
+		const int sourceBytes = monoSamples * 2;
+		if (sourceBytes <= 0)
+			continue;
 
-		while (state.accumulator.size() >= bytesPerFrame) {
-			const QByteArray chunk = state.accumulator.left(bytesPerFrame);
-			state.accumulator.remove(0, bytesPerFrame);
-
+		while (state.accumulator.size() >= sourceBytes) {
+			const QByteArray sourceChunk = state.accumulator.left(sourceBytes);
+			state.accumulator.remove(0, sourceBytes);
+			const QByteArray encoded = TciStream::convertRxMonoInt16(
+				sourceChunk, state.sampleType, state.channels);
+			if (encoded.isEmpty())
+				continue;
 			const QByteArray frame = TciStream::makeRxAudioFrame(
-				chunk, 0, state.sampleRate, state.sampleType,
+				encoded, 0, state.sampleRate, state.sampleType,
 				state.channels, state.packetCount++);
 			it.key()->sendBinaryMessage(frame);
 		}
