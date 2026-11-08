@@ -52,6 +52,59 @@ void RigctldBackend::setupWorker()
 			worker_, &RigctldWorker::stop,
 			Qt::QueuedConnection);
 
+	connect(this, &RigctldBackend::requestReadRxControl,
+	        worker_, &RigctldWorker::readRxControl, Qt::QueuedConnection);
+	connect(this, &RigctldBackend::requestSetRxControl,
+	        worker_, &RigctldWorker::setRxControl, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::rxControlChanged, this,
+	        [this](RxControl setting, int value, bool known) {
+		        auto &cached = rx_controls_[static_cast<int>(setting)];
+		        if (known)
+			        cached = value;
+		        else
+			        cached.reset();
+		        emit rxControlChanged(setting, value, known);
+	        }, Qt::QueuedConnection);
+
+	connect(this, &RigctldBackend::requestTxMeterInterval,
+	        worker_, &RigctldWorker::setTxMeterInterval, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::txMeterReading,
+	        this, &RadioBackend::txMeterReading, Qt::QueuedConnection);
+
+	connect(this, &RigctldBackend::requestRxMeterInterval,
+	        worker_, &RigctldWorker::setRxMeterInterval, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::rxSignalLevel,
+	        this, &RadioBackend::rxSignalLevel, Qt::QueuedConnection);
+
+	connect(this, &RigctldBackend::requestFilterEdgesHzEnabled,
+	        worker_, &RigctldWorker::setFilterEdgesHzEnabled, Qt::QueuedConnection);
+	connect(this, &RigctldBackend::requestReadRxFilterBand,
+	        worker_, &RigctldWorker::readRxFilterBand, Qt::QueuedConnection);
+	connect(this, &RigctldBackend::requestSetRxFilterBand,
+	        worker_, &RigctldWorker::setRxFilterBand, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::rxFilterBandChanged, this, [this](int low, int high) {
+		rx_filter_band_ = {low, high};
+		emit rxFilterBandChanged(low, high);
+	}, Qt::QueuedConnection);
+
+	connect(this, &RigctldBackend::requestReadAgc,
+	        worker_, &RigctldWorker::readAgc, Qt::QueuedConnection);
+	connect(this, &RigctldBackend::requestSetAgcMode,
+	        worker_, &RigctldWorker::setAgcMode, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::agcModeChanged, this, [this](const QString &mode) {
+		agc_mode_ = mode;
+		emit agcModeChanged(mode);
+	}, Qt::QueuedConnection);
+
+	connect(this, &RigctldBackend::requestReadDrive,
+	        worker_, &RigctldWorker::readDrive, Qt::QueuedConnection);
+	connect(this, &RigctldBackend::requestSetDrivePercent,
+	        worker_, &RigctldWorker::setDrivePercent, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::driveChanged, this, [this](int percent) {
+		drive_percent_ = percent;
+		emit driveChanged(percent);
+	}, Qt::QueuedConnection);
+
 	connect(this, &RigctldBackend::requestSetFrequencyHz,
 			worker_, &RigctldWorker::setFrequencyHz,
 			Qt::QueuedConnection);
@@ -92,13 +145,31 @@ void RigctldBackend::setupWorker()
 			this, &RigctldBackend::updateSplit,
 			Qt::QueuedConnection);
 
+	connect(worker_, &RigctldWorker::splitStateUnavailable, this, [this] {
+		split_known_ = false;
+		emit effectiveTxFrequencyInvalidated();
+	}, Qt::QueuedConnection);
+
 	connect(worker_, &RigctldWorker::modeChanged,
 			this, &RigctldBackend::updateMode,
+			Qt::QueuedConnection);
+
+	connect(worker_, &RigctldWorker::supportedModesChanged,
+			this, &RigctldBackend::updateSupportedModes,
+			Qt::QueuedConnection);
+
+	connect(worker_, &RigctldWorker::vfoLimitsChanged,
+			this, &RigctldBackend::updateVfoLimits,
 			Qt::QueuedConnection);
 
 	connect(worker_, &RigctldWorker::pttChanged,
 			this, &RigctldBackend::updatePtt,
 			Qt::QueuedConnection);
+
+	connect(worker_, &RigctldWorker::pttCommandFailed,
+			this, &RadioBackend::pttCommandFailed, Qt::QueuedConnection);
+	connect(worker_, &RigctldWorker::pttCommandSucceeded,
+			this, &RadioBackend::pttCommandSucceeded, Qt::QueuedConnection);
 
 	connect(worker_, &RigctldWorker::connectedChanged,
 			this, [](bool connected) {
@@ -139,14 +210,6 @@ qint64 RigctldBackend::frequencyHz() const
 
 void RigctldBackend::setFrequencyHz(qint64 hz)
 {
-	if (hz <= 0)
-		return;
-
-	if (frequency_hz_ != hz) {
-		frequency_hz_ = hz;
-		emit frequencyChanged(hz);
-	}
-
 	emit requestSetFrequencyHz(hz);
 }
 
@@ -160,14 +223,6 @@ qint64 RigctldBackend::txFrequencyHz() const
 
 void RigctldBackend::setTxFrequencyHz(qint64 hz)
 {
-	if (hz <= 0)
-		return;
-
-	if (tx_frequency_hz_ != hz) {
-		tx_frequency_hz_ = hz;
-		emit txFrequencyChanged(hz);
-	}
-
 	emit requestSetTxFrequencyHz(hz);
 }
 
@@ -176,13 +231,109 @@ bool RigctldBackend::splitEnabled() const
 	return split_enabled_;
 }
 
+qint64 RigctldBackend::effectiveTxFrequencyHz() const
+{
+	if (!online() || !split_known_)
+		return 0;
+	const qint64 base = split_enabled_ ? tx_frequency_hz_ : frequency_hz_;
+	if (base <= 0)
+		return 0;
+	const bool xitEnabled = rxControlValue(RxControl::XitEnabled).value_or(0);
+	const auto xitOffset = rxControlValue(RxControl::XitOffset);
+	if (xitEnabled && !xitOffset)
+		return 0;
+	return base + (xitEnabled ? xitOffset.value_or(0) : 0);
+}
+
+void RigctldBackend::setTxMeterInterval(int milliseconds)
+{
+	emit requestTxMeterInterval(milliseconds);
+}
+
+void RigctldBackend::setRxMeterInterval(int milliseconds)
+{
+	emit requestRxMeterInterval(milliseconds);
+}
+
+void RigctldBackend::setFilterEdgesHzEnabled(bool enabled)
+{
+	emit requestFilterEdgesHzEnabled(enabled);
+}
+
+QPair<int, int> RigctldBackend::rxFilterBand() const
+{
+	return online() ? rx_filter_band_ : QPair<int, int>{};
+}
+
+void RigctldBackend::requestRxFilterBand()
+{
+	if (online())
+		emit requestReadRxFilterBand();
+}
+
+void RigctldBackend::setRxFilterBand(int low, int high)
+{
+	if (online())
+		emit requestSetRxFilterBand(low, high);
+}
+
+QString RigctldBackend::agcMode() const
+{
+	return online() ? agc_mode_ : QString();
+}
+
+void RigctldBackend::requestAgcReadback()
+{
+	if (online())
+		emit requestReadAgc();
+}
+
+void RigctldBackend::setAgcMode(const QString &mode)
+{
+	if (online())
+		emit requestSetAgcMode(mode);
+}
+
+int RigctldBackend::drivePercent() const
+{
+	return online() ? drive_percent_ : -1;
+}
+
+void RigctldBackend::requestDriveReadback()
+{
+	if (online())
+		emit requestReadDrive();
+	else
+		qWarning() << "Cannot read DRIVE while CAT is offline";
+}
+
+void RigctldBackend::setDrivePercent(int percent)
+{
+	if (online())
+		emit requestSetDrivePercent(percent);
+}
+
+std::optional<int> RigctldBackend::rxControlValue(RxControl setting) const
+{
+	if (!online())
+		return {};
+	return rx_controls_[static_cast<int>(setting)];
+}
+
+void RigctldBackend::requestRxControl(RxControl setting)
+{
+	if (online())
+		emit requestReadRxControl(setting);
+}
+
+void RigctldBackend::setRxControl(RxControl setting, int value)
+{
+	if (online())
+		emit requestSetRxControl(setting, value);
+}
+
 void RigctldBackend::setSplitEnabled(bool enabled)
 {
-	if (split_enabled_ != enabled) {
-		split_enabled_ = enabled;
-		emit splitChanged(enabled);
-	}
-
 	emit requestSetSplitEnabled(enabled);
 }
 
@@ -193,17 +344,7 @@ QString RigctldBackend::mode() const
 
 void RigctldBackend::setMode(const QString &mode)
 {
-	const QString normalized = mode.trimmed();
-
-	if (normalized.isEmpty())
-		return;
-
-	if (mode_ != normalized) {
-		mode_ = normalized;
-		emit modeChanged(normalized);
-	}
-
-	emit requestSetMode(normalized);
+	emit requestSetMode(mode);
 }
 
 bool RigctldBackend::ptt() const
@@ -213,14 +354,34 @@ bool RigctldBackend::ptt() const
 
 void RigctldBackend::setPtt(bool enabled)
 {
-	// Important: this is logical bridge state. Do not block the main/audio
-	// thread waiting for rigctld confirmation.
-	if (ptt_ != enabled) {
-		ptt_ = enabled;
-		emit pttChanged(enabled);
-	}
-
 	emit requestSetPtt(enabled);
+}
+
+QPair<qint64, qint64> RigctldBackend::vfoLimits() const
+{
+	return vfo_limits_;
+}
+
+void RigctldBackend::updateVfoLimits(qint64 minHz, qint64 maxHz)
+{
+	const QPair<qint64, qint64> limits{minHz, maxHz};
+	if (vfo_limits_ == limits)
+		return;
+	vfo_limits_ = limits;
+	emit vfoLimitsChanged(minHz, maxHz);
+}
+
+QStringList RigctldBackend::supportedModes() const
+{
+	return supported_modes_;
+}
+
+void RigctldBackend::updateSupportedModes(const QStringList &modes)
+{
+	if (supported_modes_ == modes)
+		return;
+	supported_modes_ = modes;
+	emit supportedModesChanged(modes);
 }
 
 bool RigctldBackend::online() const
@@ -236,6 +397,14 @@ void RigctldBackend::updateConnected(bool connected)
 
 	if (!connected_) {
 		radio_usable_ = false;
+		split_known_ = false;
+		tx_frequency_hz_ = 0;
+		rx_controls_ = {};
+		drive_percent_ = -1;
+		agc_mode_.clear();
+		rx_filter_band_ = {};
+		updateSupportedModes({});
+		updateVfoLimits(0, 0);
 		emit onlineChanged(false);
 	}
 }
@@ -245,6 +414,14 @@ void RigctldBackend::updateRadioUsable(bool usable)
 	const bool oldOnline = online();
 
 	radio_usable_ = usable;
+	if (!usable) {
+		rx_controls_ = {};
+		drive_percent_ = -1;
+		agc_mode_.clear();
+		rx_filter_band_ = {};
+		split_known_ = false;
+		tx_frequency_hz_ = 0;
+	}
 
 	const bool newOnline = online();
 	if (oldOnline != newOnline) {
@@ -273,36 +450,25 @@ void RigctldBackend::setDebug(bool enabled)
 
 void RigctldBackend::updateFrequency(qint64 hz)
 {
-	if (frequency_hz_ == hz)
-		return;
-
 	frequency_hz_ = hz;
 	emit frequencyChanged(hz);
 }
 
 void RigctldBackend::updateTxFrequency(qint64 hz)
 {
-	if (tx_frequency_hz_ == hz)
-		return;
-
 	tx_frequency_hz_ = hz;
 	emit txFrequencyChanged(hz);
 }
 
 void RigctldBackend::updateSplit(bool enabled)
 {
-	if (split_enabled_ == enabled)
-		return;
-
 	split_enabled_ = enabled;
+	split_known_ = true;
 	emit splitChanged(enabled);
 }
 
 void RigctldBackend::updateMode(const QString &mode)
 {
-	if (mode_ == mode)
-		return;
-
 	mode_ = mode;
 	emit modeChanged(mode);
 }

@@ -12,7 +12,7 @@ qint64 NullRadioBackend::frequencyHz() const
 
 void NullRadioBackend::setFrequencyHz(qint64 hz)
 {
-	if (hz <= 0 || frequency_hz_ == hz)
+	if (hz <= 0)
 		return;
 
 	frequency_hz_ = hz;
@@ -26,7 +26,7 @@ qint64 NullRadioBackend::txFrequencyHz() const
 
 void NullRadioBackend::setTxFrequencyHz(qint64 hz)
 {
-	if (hz <= 0 || tx_frequency_hz_ == hz)
+	if (hz <= 0)
 		return;
 
 	tx_frequency_hz_ = hz;
@@ -40,9 +40,6 @@ bool NullRadioBackend::splitEnabled() const
 
 void NullRadioBackend::setSplitEnabled(bool enabled)
 {
-	if (split_enabled_ == enabled)
-		return;
-
 	split_enabled_ = enabled;
 	emit splitChanged(split_enabled_);
 }
@@ -56,7 +53,7 @@ void NullRadioBackend::setMode(const QString &mode)
 {
 	const QString normalized = mode.trimmed().toUpper();
 
-	if (normalized.isEmpty() || mode_ == normalized)
+	if (normalized.isEmpty())
 		return;
 
 	mode_ = normalized;
@@ -70,11 +67,11 @@ bool NullRadioBackend::ptt() const
 
 void NullRadioBackend::setPtt(bool enabled)
 {
-	if (ptt_ == enabled)
-		return;
-
-	ptt_ = enabled;
-	emit pttChanged(ptt_);
+	if (ptt_ != enabled) {
+		ptt_ = enabled;
+		emit pttChanged(ptt_);
+	}
+	emit pttCommandSucceeded(enabled);
 }
 
 void NullRadioBackend::setPollingSuspended(bool suspended)

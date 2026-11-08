@@ -35,6 +35,9 @@ add_executable(tci-bridge
         src/TciCommand.cpp
         src/TciStreamFrame.h
         src/TciStreamFrame.cpp
+        src/TciFrequencyCaps.h
+        src/TciSampleRate.h
+        src/TciSampleRate.cpp
         src/PcmConvert.h
         src/PcmConvert.cpp
 )
@@ -73,3 +76,29 @@ install(FILES
         examples/INSTALL-systemd.md
         DESTINATION ${CMAKE_INSTALL_DOCDIR}
 )
+# Optional protocol framing tests. Disabled for normal appliance builds.
+option(TCI_BRIDGE_BUILD_TESTS "Build TCI protocol framing tests" OFF)
+if(TCI_BRIDGE_BUILD_TESTS)
+    enable_testing()
+    add_executable(tci-stream-tests
+        tests/TciStreamTests.cpp
+        src/TciStreamFrame.cpp
+        src/TciSampleRate.cpp
+    )
+    target_include_directories(tci-stream-tests PRIVATE src)
+    target_link_libraries(tci-stream-tests PRIVATE Qt6::Core)
+    add_test(NAME tci-stream-tests COMMAND tci-stream-tests)
+    add_executable(tci-server-tests
+        tests/TciServerTests.cpp
+        src/RadioBackend.h
+        src/RigctldBackend.cpp
+        src/RigctldWorker.cpp
+        src/TciServer.cpp
+        src/TciCommand.cpp
+        src/TciStreamFrame.cpp
+        src/TciSampleRate.cpp
+    )
+    target_include_directories(tci-server-tests PRIVATE src)
+    target_link_libraries(tci-server-tests PRIVATE Qt6::Core Qt6::Network Qt6::WebSockets)
+    add_test(NAME tci-server-tests COMMAND tci-server-tests)
+endif()

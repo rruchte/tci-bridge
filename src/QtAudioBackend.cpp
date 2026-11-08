@@ -160,115 +160,144 @@ bool QtAudioBackend::startTx()
 		return false;
 	}
 
+	// Validate/select the output device at startup, but do not keep an
+	// active PipeWire/Qt output stream alive throughout RX-only operation.
+	// Each TCI transmission opens a fresh QAudioSink in beginTxAudioStream().
 	tx_buffer_.clear();
-	tx_buffer_overflows_ = 0;
-	tx_buffer_underruns_ = 0;
-	tx_drain_ticks_ = 0;
+	tx_stream_active_ = false;
 	tx_output_primed_ = false;
-
-	tx_sink_ = std::make_unique<QAudioSink>(tx_device_, tx_format_);
-	tx_sink_->setBufferSize(
-		tx_format_.bytesForDuration(tx_sink_buffer_ms_ * 1000)
-	);
-
-	connect(tx_sink_.get(), &QAudioSink::stateChanged,
-		this, [this](QAudio::State state) {
-			if (state == QAudio::IdleState &&
-				tx_stream_active_ &&
-				tx_output_primed_ &&
-				tx_buffer_.isEmpty()) {
-				++tx_buffer_underruns_;
-				tx_output_primed_ = false;
-			}
-			if (!quiet_)
-			{
-				qInfo() << "TX audio state changed:"
-						<< state
-						<< "error=" << tx_sink_->error()
-						<< "buffered=" << tx_buffer_.size()
-						<< "bytesFree=" << tx_sink_->bytesFree()
-						<< "streamActive=" << tx_stream_active_
-						<< "primed=" << tx_output_primed_
-						<< "underruns=" << tx_buffer_underruns_
-						<< "overflows=" << tx_buffer_overflows_;
-			}
-		});
-
-	tx_io_ = tx_sink_->start();
-
-	if (!tx_io_) {
-		qWarning() << "Failed to start TX audio sink:"
-				   << tx_device_.description()
-				   << "error=" << tx_sink_->error();
-		tx_sink_.reset();
-		return false;
-	}
 
 	tx_drain_timer_.setTimerType(Qt::PreciseTimer);
 	connect(&tx_drain_timer_, &QTimer::timeout,
 			this, &QtAudioBackend::drainTxAudio,
 			Qt::UniqueConnection);
 
-	tx_drain_timer_.start(tx_drain_interval_ms_);
-
-	qInfo() << "Started TX audio:"
-		<< tx_device_.description()
-		<< tx_format_.sampleRate() << "Hz"
-		<< tx_format_.channelCount() << "ch"
-		<< sampleFormatName(tx_format_.sampleFormat())
-		<< "sinkBufferMs=" << tx_sink_buffer_ms_
-		<< "sinkBufferBytes=" << tx_sink_->bufferSize()
-		<< "prebufferMs=" << tx_prebuffer_ms_
-		<< "jitterBufferMs=" << tx_jitter_buffer_ms_
-		<< "drainIntervalMs=" << tx_drain_interval_ms_;
+	qInfo() << "TX audio device ready (stream opens per transmission):"
+			<< tx_device_.description()
+			<< tx_format_.sampleRate() << "Hz"
+			<< tx_format_.channelCount() << "ch"
+			<< sampleFormatName(tx_format_.sampleFormat())
+			<< "sinkBufferMs=" << tx_sink_buffer_ms_
+			<< "prebufferMs=" << tx_prebuffer_ms_
+			<< "jitterBufferMs=" << tx_jitter_buffer_ms_
+			<< "drainIntervalMs=" << tx_drain_interval_ms_;
 
 	return true;
 }
 
 void QtAudioBackend::stopTx()
 {
-	tx_drain_timer_.stop();
-
-	if (tx_sink_) {
-		tx_sink_->stop();
-		tx_sink_.reset();
-	}
-
-	tx_io_ = nullptr;
-	tx_buffer_.clear();
-	tx_output_primed_ = false;
+	endTxAudioStream();
 }
 
 void QtAudioBackend::beginTxAudioStream()
 {
+	// Never reuse a PipeWire stream across transmissions. In particular, a
+	// QAudioSink started during bridge initialization can become unhealthy
+	// after a long RX-only idle interval.
+	endTxAudioStream();
+
 	tx_buffer_.clear();
-
-	tx_stream_active_ = true;
 	tx_output_primed_ = false;
-
 	tx_buffer_overflows_ = 0;
 	tx_buffer_underruns_ = 0;
 	tx_drain_ticks_ = 0;
 	tx_write_count_ = 0;
 	tx_overflow_dropped_bytes_ = 0;
 
-	qInfo() << "TX audio stream begin";
+	if (tx_device_.isNull() || !tx_device_.isFormatSupported(tx_format_)) {
+		qCritical() << "TX audio stream cannot start: no valid output device";
+		emit txOutputFailed(QStringLiteral("TX output device unavailable"));
+		return;
+	}
+
+	tx_sink_ = std::make_unique<QAudioSink>(tx_device_, tx_format_);
+	const qsizetype requestedBuffer =
+		tx_format_.bytesForDuration(tx_sink_buffer_ms_ * 1000);
+	tx_sink_->setBufferSize(requestedBuffer);
+
+	connect(tx_sink_.get(), &QAudioSink::stateChanged,
+			this, [this](QAudio::State state) {
+				if (!tx_sink_)
+					return;
+				if (tx_stream_active_ && state == QAudio::StoppedState &&
+				    tx_sink_->error() != QAudio::NoError) {
+					tx_drain_timer_.stop();
+					emit txOutputFailed(QStringLiteral("TX audio sink stopped with an error"));
+					return;
+				}
+				if (state == QAudio::IdleState &&
+					tx_stream_active_ &&
+					tx_output_primed_ &&
+					tx_buffer_.isEmpty()) {
+					++tx_buffer_underruns_;
+					tx_output_primed_ = false;
+				}
+				if (!quiet_) {
+					qInfo() << "TX audio state changed:"
+							<< state
+							<< "error=" << tx_sink_->error()
+							<< "buffered=" << tx_buffer_.size()
+							<< "bytesFree=" << tx_sink_->bytesFree()
+							<< "streamActive=" << tx_stream_active_
+							<< "primed=" << tx_output_primed_
+							<< "underruns=" << tx_buffer_underruns_
+							<< "overflows=" << tx_buffer_overflows_;
+				}
+			});
+
+	tx_io_ = tx_sink_->start();
+	if (!tx_io_) {
+		qCritical() << "Failed to open fresh TX audio stream:"
+					<< tx_device_.description()
+					<< "error=" << tx_sink_->error();
+		tx_sink_->stop();
+		tx_sink_.reset();
+		emit txOutputFailed(QStringLiteral("Failed to open TX output stream"));
+		return;
+	}
+
+	tx_stream_active_ = true;
+	tx_drain_timer_.start(tx_drain_interval_ms_);
+
+	qInfo() << "TX audio stream begin"
+			<< "requestedBufferBytes=" << requestedBuffer
+			<< "actualBufferBytes=" << tx_sink_->bufferSize()
+			<< "bytesFree=" << tx_sink_->bytesFree()
+			<< "state=" << tx_sink_->state();
+	emit txOutputReady();
 }
 
 void QtAudioBackend::endTxAudioStream()
 {
+	const bool hadStream = tx_stream_active_ || tx_sink_ != nullptr;
 	const qsizetype remaining = tx_buffer_.size();
 
+	// Do this before stopping QAudioSink, so its stateChanged callback
+	// cannot mistake intentional shutdown for a playback underrun.
 	tx_stream_active_ = false;
 	tx_output_primed_ = false;
+	tx_drain_timer_.stop();
 
+	if (tx_sink_) {
+		// Disconnect stateChanged before stop(), which can emit synchronously.
+		tx_sink_->disconnect(this);
+		tx_sink_->stop();
+		tx_io_ = nullptr;
+		tx_sink_.reset();
+	} else {
+		tx_io_ = nullptr;
+	}
 	tx_buffer_.clear();
 
-	qInfo() << "TX audio stream end"
-			<< "discardedBuffered=" << remaining
-			<< "underruns=" << tx_buffer_underruns_
-			<< "overflows=" << tx_buffer_overflows_
-			<< "droppedBytes=" << tx_overflow_dropped_bytes_;
+	if (hadStream) {
+		qInfo() << "TX audio stream end"
+				<< "discardedBuffered=" << remaining
+				<< "underruns=" << tx_buffer_underruns_
+				<< "overflows=" << tx_buffer_overflows_
+				<< "droppedBytes=" << tx_overflow_dropped_bytes_
+				<< "sinkClosed=" << (tx_sink_ == nullptr);
+	}
 }
 
 void QtAudioBackend::writeTxAudio(const QByteArray &pcm)
@@ -290,7 +319,10 @@ void QtAudioBackend::writeTxAudio(const QByteArray &pcm)
 	tx_buffer_.append(converted);
 	++tx_write_count_;
 
-	const qsizetype maxBufferedBytes = tx_format_.bytesForDuration(tx_jitter_buffer_ms_ * 1000);
+	// Keep enough space to reach the negotiated prebuffer even when
+	// the configured jitter buffer is smaller.
+	const qint64 capacityMs = qMax<qint64>(tx_jitter_buffer_ms_, qint64(tx_prebuffer_ms_) + 50);
+	const qsizetype maxBufferedBytes = tx_format_.bytesForDuration(capacityMs * 1000);
 
 	if (tx_buffer_.size() > maxBufferedBytes) {
 		const qsizetype drop = tx_buffer_.size() - maxBufferedBytes;
@@ -373,7 +405,8 @@ void QtAudioBackend::drainTxAudio()
 		tx_io_->write(tx_buffer_.constData(), toWrite);
 
 	if (written < 0) {
-		qWarning() << "TX audio write failed";
+		tx_drain_timer_.stop();
+		emit txOutputFailed(QStringLiteral("TX audio write failed"));
 		return;
 	}
 

@@ -76,6 +76,7 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
         const YAML::Node server = root["server"];
         readOptionalQString(server, "bind", &config->serverBind);
     	readOptional<bool>(server, "debug", &config->serverDebug);
+        readOptional<bool>(server, "allow_partial_tx_sensors", &config->allowPartialTxSensors);
 
         if (!readOptionalPort(server, "port", &config->serverPort, error))
             return false;
@@ -88,6 +89,7 @@ bool AppConfig::loadYamlFile(const QString &path, AppConfig *config, QString *er
             return false;
 
         readOptional<int>(radio, "poll_ms", &config->pollMs);
+        readOptional<bool>(radio, "hamlib_filter_edges_hz", &config->hamlibFilterEdgesHz);
         readOptional<bool>(radio, "debug", &config->rigctldDebug);
 
         const YAML::Node audio = root["audio"];

@@ -479,10 +479,12 @@ int main(int argc, char *argv[])
         );
 
         rig->setDebug(config.rigctldDebug);
+        rig->setFilterEdgesHzEnabled(config.hamlibFilterEdgesHz);
         radio = std::move(rig);
     }
 
 	TciServer server(radio.get());
+	server.setAllowPartialTxSensors(config.allowPartialTxSensors);
 
 	QObject::connect(&app, &QCoreApplication::aboutToQuit,
 				 &server, [&server]() {
@@ -493,6 +495,7 @@ int main(int argc, char *argv[])
 	server.setQuiet(config.quiet);
 	server.setTransmitEnabled(config.enableTransmit);
 	server.setMaxTxMs(config.maxTxMs);
+	server.setDefaultTxPrebufferMs(config.audioTxPrebufferMs);
 	server.setUnkeyOnDisconnect(config.unkeyOnDisconnect);
 	server.setTxTimingLogEnabled(config.logTxTiming);
 
@@ -539,10 +542,23 @@ int main(int argc, char *argv[])
 				 });
 
 	QObject::connect(&server, &TciServer::txAudioStarted,
-					 &audio, &QtAudioBackend::beginTxAudioStream);
+					 &audio, [&audio](int prebufferMs) {
+						 audio.setTxPrebufferMs(prebufferMs);
+						 audio.beginTxAudioStream();
+					 });
 
 	QObject::connect(&server, &TciServer::txAudioStopped,
 					 &audio, &QtAudioBackend::endTxAudioStream);
+
+	QObject::connect(&audio, &QtAudioBackend::txOutputReady,
+	                 &server, &TciServer::txAudioOutputReady);
+
+	// Defer teardown until the sink-open callback has returned.
+	QObject::connect(&audio, &QtAudioBackend::txOutputFailed,
+					 &server, [&server](const QString &reason) {
+						 qCritical().noquote() << "TX audio unavailable; forcing unkey:" << reason;
+						 server.forceUnkey(reason);
+					 }, Qt::QueuedConnection);
 
 	QObject::connect(&signalHandler, &SignalHandler::interruptReceived,
 					 &server, [&server]() {

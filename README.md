@@ -7,27 +7,13 @@
 
 It was developed to allow JS8Call TCI operation with conventional radios, external audio devices, and Hamlib-supported rigs.
 
-## Status
+## Protocol support
 
-Currently supported:
-
-- TCI WebSocket server
-- RX audio stream to TCI clients
-- TX audio stream from TCI clients
-- VFO frequency
-- TX VFO frequency shadowing / best-effort rigctld support
-- Split enable/disable
-- Mode
-- PTT
-- TX watchdog
-- TX audio ownership
-- Optional TX-audio-keys-PTT mode
-- Rigctld worker thread so slow CAT operations do not block audio/WebSocket timing
-- TX audio jitter buffering
-- Clean TX audio lifecycle events
-- SIGINT/SIGTERM shutdown handling
-
-The bridge intentionally implements only the TCI protocol subset needed for JS8Call-style operation.
+The bridge implements a hardware-radio subset of TCI 2.1 over WebSocket.
+It supports CAT control, RX and TX audio, and optional radio controls and
+meters where the Hamlib driver supplies the required data. The
+[hardware-radio profile](docs/protocol-subset.md) lists the commands,
+audio formats, driver-dependent behavior, and extensions.
 
 ## Requirements
 
@@ -231,6 +217,21 @@ Stop service:
 sudo systemctl stop tci-bridge.service
 ```
 
+## TCI TX timing compatibility
+
+The server sends TCI 2.1 `TX_CHRONO` pacing frames when the active
+transmitting client selects TCI audio (`trx:0,true,tci;`). It also accepts
+valid `TX_AUDIO_STREAM` frames from that same TX owner even when they
+were not preceded by a chrono request. No proprietary capability negotiation
+or global TX timing flag is required.
+
+The bridge starts chrono after rigctld confirms key-down and the audio
+sink opens. The TX owner's negotiated rate, format, channel count and scalar
+length determine chrono requests. The bridge accepts uncompressed PCM at 8,
+12, 24 or 48 kHz in INT16, INT24, INT32 or FLOAT32 with one or two channels,
+converting to 48 kHz mono INT16 for the Qt backend. The supported commands and
+compatibility behavior are documented in the [hardware-radio profile](docs/protocol-subset.md).
+
 ## TX safety
 
 Transmit is disabled by default.
@@ -244,21 +245,13 @@ ptt:
 
 Safety features:
 
-- TX watchdog with configurable maximum TX duration
+- TX watchdog with a configurable maximum duration measured from the key request
 - Optional unkey on client disconnect
 - TX ownership enforcement
 - Separate TX audio ownership
 - Radio polling suspension during TX audio
 - Clean SIGINT/SIGTERM shutdown handling
 - Forced unkey on shutdown/watchdog where appropriate
-
-Recommended first RF test:
-
-- dummy load
-- low RF power
-- conservative radio audio input gain
-- no or minimal ALC movement
-- conservative JS8Call TX audio level
 
 ## Troubleshooting
 
@@ -342,3 +335,69 @@ Typical installed paths:
 /usr/local/share/tci-bridge/examples/tci-bridge.yml
 /usr/local/share/tci-bridge/examples/systemd/tci-bridge.service
 ```
+### Audio format and resampling
+
+The bridge uses 48 kHz mono PCM internally. The per-client audio settings
+control RX frames and the format requested by `TX_CHRONO`. Valid incoming
+TX frames may use any supported wire format. RX decimates from 48 kHz for
+lower-rate subscriptions, and TX interpolates lower-rate input before
+playback. See the [audio command reference](docs/protocol-subset.md#audio).
+
+### Startup capability declarations
+
+The startup burst reports the TCI version, bridge device identifier,
+effective `receive_only` permission, and one receiver/one channel topology.
+When TX permission changes at runtime, the bridge broadcasts the updated
+`receive_only` state.
+
+The rigctld backend now queries Hamlib's documented `M ?` operation
+once after the radio becomes usable. It advertises `modulations_list`
+only if a complete recognizable mode list is returned, including a successful
+`RPRT 0` status. Discovery is asynchronous. Already-connected TCI clients receive the mode list when
+it arrives, while later clients receive it in their startup burst.
+No vendor-specific TCI negotiation has been introduced. VFO limits are discovered from the RX ranges in Hamlib's `dump_state`
+response when they form a single continuous tuning interval. Discontinuous
+or malformed ranges are not advertised. IF limits remain omitted because
+the bridge does not implement an SDR IF/panorama tuning stage.
+
+
+### TCI modulation names and Hamlib modes
+
+TCI 2.1 describes `MODULATIONS_LIST` as a list of modulation **names**;
+it does not define a closed enumeration of permitted values. The bridge
+therefore preserves separate radio-specific mode names (including
+`FM-D`, `FMN`, `AMN`, and `PKTFMN`) rather than projecting them
+onto a narrower guessed TCI enum. It maps only Hamlib `PKTUSB` to
+`DIGU` and `PKTLSB` to `DIGL`, in both command and notification
+directions. In particular, `FMN` is not silently rewritten as
+`NFM`: although `NFM` occurs in the TCI examples, the specification
+does not establish an alias relationship with Hamlib's `FMN`.
+
+The supported-mode parser checks the complete successful rigctld
+`M ?` response and accepts well-formed future mode identifiers without
+maintaining a fixed hard-coded allowlist. Mode selection is still
+ultimately accepted or rejected by rigctld/the radio.
+
+### Automatic VFO tuning limits
+
+A separate, short-lived rigctld TCP connection queries `dump_state` once
+after the radio becomes usable. The parser checks the zero-terminated RX
+range list and the subsequent TX range delimiter, and only advertises
+`vfo_limits:<minimum>,<maximum>;` for contiguous RX coverage. Discovery is read-only and does not
+require a radio model ID, CLI option, or appliance configuration. An
+unavailable or unsupported dump leaves the limits unadvertised. The
+bridge deliberately does not claim that the RX tuning envelope is a
+continuous legal TX range.
+
+### TX output stream lifecycle
+
+The bridge selects the TX audio device at startup, but opens a fresh
+`QAudioSink` only when TCI audio TX begins and closes it after TX ends.
+This prevents a long-idle Qt/PipeWire output stream from being reused on
+subsequent transmissions. The existing prebuffer/jitter buffering remains
+unchanged. Each TX start logs the requested/actual sink buffer size,
+`bytesFree`, and initial Qt audio state. Each TX end logs underrun and
+overflow counts and verifies that the sink was closed. If a new output
+stream cannot open, the bridge queues a forced PTT unkey for safety.
+
+The initial `TX_CHRONO` is sent after the sink opens and CAT confirms PTT.

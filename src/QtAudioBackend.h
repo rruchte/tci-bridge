@@ -58,6 +58,11 @@ public:
 
 	static void listAudioDevices();
 
+signals:
+	// Opening the output stream failed; caller must release PTT safely.
+	void txOutputReady();
+	void txOutputFailed(const QString &reason);
+
 private slots:
 	void onRxReadyRead();
 

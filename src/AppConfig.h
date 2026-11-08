@@ -12,6 +12,8 @@ struct AppConfig
 	QString rigctldHost = "127.0.0.1";
 	quint16 rigctldPort = 4532;
 	int pollMs = 250;
+	bool hamlibFilterEdgesHz = false;
+	bool allowPartialTxSensors = false;
 	bool rigctldDebug = false;
 
 	QString audioMode = "default";
