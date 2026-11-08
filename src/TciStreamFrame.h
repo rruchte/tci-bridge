@@ -34,6 +34,7 @@ namespace TciStream
 		quint32 sampleCount = 0;
 		quint32 streamType = RX_AUDIO_STREAM;
 		quint32 channels = 1;
+		quint32 count = 0; // TCI 2.1 packet counter, offset 32
 
 		QByteArray payload;
 	};
@@ -43,8 +44,13 @@ namespace TciStream
 		quint32 receiver,
 		quint32 sampleRate,
 		quint32 sampleType,
-		quint32 channels
+		quint32 channels,
+		quint32 count = 0
 	);
+
+	QByteArray makeTxChronoFrame(quint32 receiver, quint32 sampleRate,
+	                             quint32 sampleType, quint32 channels,
+	                             quint32 samples, quint32 count);
 
 	StreamFrame parseFrame(const QByteArray &frame);
 
