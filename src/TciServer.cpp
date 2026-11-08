@@ -27,6 +27,12 @@ TciServer::TciServer(RadioBackend *radio, QObject *parent) :
 	tx_watchdog_.setSingleShot(true);
 
 	connect(&tx_watchdog_, &QTimer::timeout, this, &TciServer::onTxWatchdogExpired);
+
+	// Poll the sample clock frequently; the sample count, not the timer
+	// interval, determines when the next 512-sample request is due.
+	tx_chrono_timer_.setTimerType(Qt::PreciseTimer);
+	tx_chrono_timer_.setInterval(2);
+	connect(&tx_chrono_timer_, &QTimer::timeout, this, &TciServer::sendTxChrono);
 }
 
 TciServer::~TciServer()
@@ -563,6 +569,13 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 				rx_audio_packet_count_ = 0;
 				tx_chrono_packet_count_ = 0;
 
+				if (tx_chrono_enabled_) {
+					tx_chrono_samples_requested_ = 0;
+					tx_chrono_clock_.start();
+					tx_chrono_timer_.start();
+					sendTxChrono();
+				}
+
 						if (radio_)
 							radio_->setPollingSuspended(true);
 
@@ -775,6 +788,36 @@ void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 	}
 }
 
+void TciServer::setTxChronoEnabled(bool enabled)
+{
+	tx_chrono_enabled_ = enabled;
+	qInfo() << "TCI TX_CHRONO" << (enabled ? "enabled" : "disabled (push compatibility mode)");
+}
+
+void TciServer::sendTxChrono()
+{
+	if (!tx_chrono_enabled_ || !tx_audio_owner_ || !tx_owner_ ||
+	    tx_audio_owner_ != tx_owner_ || !radio_ || !radio_->ptt()) {
+		tx_chrono_timer_.stop();
+		return;
+	}
+
+	constexpr quint64 sampleRate = 48000;
+	constexpr quint32 samplesPerFrame = 512;
+	// A timer callback can be late on a loaded Pi. Drop overdue requests
+	// instead of sending a burst that would flood the TX audio queue.
+	const quint64 samplesElapsed =
+		static_cast<quint64>(tx_chrono_clock_.nsecsElapsed()) * sampleRate / 1000000000ULL;
+	if (tx_chrono_samples_requested_ > samplesElapsed)
+		return;
+
+	const QByteArray frame = TciStream::makeTxChronoFrame(
+		0, static_cast<quint32>(sampleRate), TciStream::INT16,
+		1, samplesPerFrame, tx_chrono_packet_count_++);
+	tx_audio_owner_->sendBinaryMessage(frame);
+	tx_chrono_samples_requested_ = (samplesElapsed / samplesPerFrame + 1) * samplesPerFrame;
+}
+
 void TciServer::stopTxAudioStream(const QString &reason)
 {
 	if (!tx_audio_owner_)
@@ -783,6 +826,8 @@ void TciServer::stopTxAudioStream(const QString &reason)
 	qInfo() << "TX audio stream stopped:"
 			<< reason;
 
+	tx_chrono_timer_.stop();
+	tx_chrono_samples_requested_ = 0;
 	tx_audio_owner_ = nullptr;
 	rx_audio_packet_count_ = 0;
 	tx_chrono_packet_count_ = 0;
