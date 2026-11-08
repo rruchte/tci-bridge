@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QHash>
 #include <QSet>
 #include <QTimer>
 #include <QWebSocketServer>
@@ -94,19 +95,21 @@ private:
 	QPointer<QWebSocket> tx_owner_;
 	QPointer<QWebSocket> tx_audio_owner_;
 	RadioBackend *radio_ = nullptr;
-	QSet<QWebSocket *> audio_clients_;
+	struct AudioClientState
+	{
+		quint32 sampleRate = 48000;
+		quint32 sampleType = TciStream::INT16;
+		quint32 channels = 1;
+		quint32 samplesPerFrame = 512;
+		quint32 packetCount = 0;
+		QByteArray accumulator;
+	};
+	QHash<QWebSocket *, AudioClientState> audio_clients_;
 	QTimer tx_watchdog_;
 	QTimer tx_chrono_timer_;
 	QElapsedTimer tx_chrono_clock_;
 	quint64 tx_chrono_samples_requested_ = 0;
 	bool tx_chrono_enabled_ = false;
 
-	quint32 audio_sample_rate_ = 48000;
-	quint32 audio_sample_type_ = TciStream::INT16;
-	quint32 audio_channels_ = 1;
-	quint32 audio_samples_per_frame_ = 512;
-
-	QByteArray audio_accumulator_;
-	quint32 rx_audio_packet_count_ = 0;
 	quint32 tx_chrono_packet_count_ = 0;
 };
