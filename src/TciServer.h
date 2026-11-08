@@ -74,7 +74,6 @@ private:
 
 	void logTxFrameTiming(const TciStream::StreamFrame &frame);
 
-	bool isCompatibilityEchoCommand(const QString &name) const;
 
 	static QString boolText(bool value);
 	static QString semicolon(QString message);
