@@ -565,21 +565,23 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 						stopTxAudioStream(
 							QStringLiteral("TX audio ownership change"));
 
-								tx_audio_owner_ = socket;
-				rx_audio_packet_count_ = 0;
-				tx_chrono_packet_count_ = 0;
-
-				if (tx_chrono_enabled_) {
-					tx_chrono_samples_requested_ = 0;
-					tx_chrono_clock_.start();
-					tx_chrono_timer_.start();
-					sendTxChrono();
-				}
+						tx_audio_owner_ = socket;
+						rx_audio_packet_count_ = 0;
+						tx_chrono_packet_count_ = 0;
 
 						if (radio_)
 							radio_->setPollingSuspended(true);
 
 						emit txAudioStarted();
+
+						// Begin requesting audio only after the audio sink
+						// has received its TX start notification.
+						if (tx_chrono_enabled_) {
+							tx_chrono_samples_requested_ = 0;
+							tx_chrono_clock_.start();
+							tx_chrono_timer_.start();
+							sendTxChrono();
+						}
 					}
 				} else {
 					// TCI audio is not selected as the transmit source.
