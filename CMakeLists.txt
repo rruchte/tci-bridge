@@ -73,3 +73,15 @@ install(FILES
         examples/INSTALL-systemd.md
         DESTINATION ${CMAKE_INSTALL_DOCDIR}
 )
+# Optional protocol framing tests. Disabled for normal appliance builds.
+option(TCI_BRIDGE_BUILD_TESTS "Build TCI protocol framing tests" OFF)
+if(TCI_BRIDGE_BUILD_TESTS)
+    enable_testing()
+    add_executable(tci-stream-tests
+        tests/TciStreamTests.cpp
+        src/TciStreamFrame.cpp
+    )
+    target_include_directories(tci-stream-tests PRIVATE src)
+    target_link_libraries(tci-stream-tests PRIVATE Qt6::Core)
+    add_test(NAME tci-stream-tests COMMAND tci-stream-tests)
+endif()
