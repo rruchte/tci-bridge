@@ -253,11 +253,6 @@ int main(int argc, char *argv[])
 		"ms"
 	);
 
-    QCommandLineOption txChronoOption(
-        QStringList() << "tx-chrono",
-        "Enable TCI TX_CHRONO pacing (experimental); default is push TX compatibility mode."
-    );
-
     QCommandLineOption txAudioKeysPttOption(
         QStringList() << "tx-audio-keys-ptt",
         "Assert PTT while TX audio is active."
@@ -319,7 +314,6 @@ int main(int argc, char *argv[])
 	parser.addOption(txJitterBufferMsOption);
 	parser.addOption(txDrainIntervalMsOption);
     parser.addOption(txAudioKeysPttOption);
-    parser.addOption(txChronoOption);
 	parser.addOption(enableTransmitOption);
 	parser.addOption(maxTxMsOption);
 	parser.addOption(noUnkeyOnDisconnectOption);
@@ -501,7 +495,6 @@ int main(int argc, char *argv[])
 	server.setMaxTxMs(config.maxTxMs);
 	server.setUnkeyOnDisconnect(config.unkeyOnDisconnect);
 	server.setTxTimingLogEnabled(config.logTxTiming);
-	server.setTxChronoEnabled(parser.isSet(txChronoOption));
 
 	if (!server.listen(QHostAddress(config.serverBind), config.serverPort))
         return 1;
