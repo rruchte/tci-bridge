@@ -57,6 +57,10 @@ namespace TciStream
 	QByteArray convertRxMonoInt16(const QByteArray &monoPcm,
 	                               quint32 sampleType, quint32 channels);
 
+	// Decode uncompressed TCI TX PCM to 48-kHz mono signed int16.
+	// Stereo pairs are mixed to mono. Returns empty on invalid input.
+	QByteArray convertTxToMonoInt16(const StreamFrame &frame);
+
 	StreamFrame parseFrame(const QByteArray &frame);
 
 	int bytesPerSample(quint32 sampleType);
