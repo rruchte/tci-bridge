@@ -41,11 +41,13 @@ int main()
         return 1;
 
     const QByteArray chrono = TciStream::makeTxChronoFrame(
-        0, 48000, TciStream::INT16, 1, 512, 42);
+        0, 48000, TciStream::FLOAT32, 1, 512, 42);
     const auto parsedChrono = TciStream::parseFrame(chrono);
     if (!check(chrono.size() == 64 && parsedChrono.valid &&
                parsedChrono.streamType == TciStream::TX_CHRONO &&
-               parsedChrono.sampleCount == 512 && parsedChrono.count == 42 &&
+               parsedChrono.sampleCount == 512 &&
+               parsedChrono.sampleType == TciStream::FLOAT32 &&
+               parsedChrono.count == 42 &&
                parsedChrono.payload.isEmpty(),
                "header-only TX_CHRONO"))
         return 1;
