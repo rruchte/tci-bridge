@@ -1,5 +1,6 @@
 #include "TciStreamFrame.h"
 
+#include <algorithm>
 #include <cstring>
 #include <cmath>
 #include <limits>
