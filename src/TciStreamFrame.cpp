@@ -1,6 +1,8 @@
 #include "TciStreamFrame.h"
 
 #include <cstring>
+#include <cmath>
+#include <limits>
 
 namespace
 {
@@ -141,6 +143,71 @@ namespace TciStream
         return frame;
     }
 
+
+    QByteArray convertTxToMonoInt16(const StreamFrame &frame)
+    {
+        if (!frame.valid || frame.streamType != TX_AUDIO_STREAM ||
+            frame.codec != 0 || frame.channels < 1 || frame.channels > 2)
+            return {};
+
+        const int bps = bytesPerSample(frame.sampleType);
+        if (bps == 0)
+            return {};
+
+        const quint64 requestedBytes =
+            static_cast<quint64>(frame.sampleCount) * static_cast<quint64>(bps);
+        if (requestedBytes == 0 ||
+            requestedBytes != static_cast<quint64>(frame.payload.size()) ||
+            frame.sampleCount % frame.channels != 0)
+            return {};
+
+        QByteArray mono;
+        mono.reserve(static_cast<qsizetype>(frame.sampleCount / frame.channels) * 2);
+        const auto *src = reinterpret_cast<const unsigned char *>(frame.payload.constData());
+
+        const auto readSample = [&](quint64 index) -> qint16 {
+            const auto *p = src + index * static_cast<quint64>(bps);
+            if (frame.sampleType == INT16) {
+                const quint16 raw = quint16(p[0]) | (quint16(p[1]) << 8);
+                return static_cast<qint16>(raw);
+            }
+            if (frame.sampleType == INT24) {
+                quint32 raw = quint32(p[0]) | (quint32(p[1]) << 8) |
+                              (quint32(p[2]) << 16);
+                if (raw & 0x800000U)
+                    raw |= 0xff000000U;
+                const qint32 signedSample = static_cast<qint32>(raw);
+                return static_cast<qint16>(signedSample / 256);
+            }
+            if (frame.sampleType == INT32) {
+                const quint32 raw = quint32(p[0]) | (quint32(p[1]) << 8) |
+                                    (quint32(p[2]) << 16) | (quint32(p[3]) << 24);
+                const qint32 signedSample = static_cast<qint32>(raw);
+                return static_cast<qint16>(signedSample / 65536);
+            }
+            const quint32 raw = quint32(p[0]) | (quint32(p[1]) << 8) |
+                                (quint32(p[2]) << 16) | (quint32(p[3]) << 24);
+            float value;
+            std::memcpy(&value, &raw, sizeof(value));
+            if (!std::isfinite(value))
+                return 0;
+            const double clamped = std::max(-1.0, std::min(1.0, static_cast<double>(value)));
+            return static_cast<qint16>(std::clamp(
+                static_cast<int>(std::lround(clamped * 32768.0)), -32768, 32767));
+        };
+
+        for (quint64 i = 0; i < frame.sampleCount; i += frame.channels) {
+            const qint32 left = readSample(i);
+            const qint32 mixed = frame.channels == 2
+                ? (left + static_cast<qint32>(readSample(i + 1))) / 2
+                : left;
+            const quint16 bits = static_cast<quint16>(static_cast<qint16>(mixed));
+            mono.append(static_cast<char>(bits & 0xff));
+            mono.append(static_cast<char>((bits >> 8) & 0xff));
+        }
+        return mono;
+    }
+
     StreamFrame parseFrame(const QByteArray &frame)
     {
         StreamFrame result;
@@ -170,11 +237,13 @@ namespace TciStream
         if (bps <= 0)
             return result;
 
-        const qsizetype expectedMin =
-            static_cast<qsizetype>(result.sampleCount) *
-            static_cast<qsizetype>(bps);
+        if (result.channels == 0 || result.channels > 2 ||
+            result.sampleCount % result.channels != 0)
+            return result;
 
-        if (result.payload.size() < expectedMin)
+        const quint64 expectedBytes =
+            static_cast<quint64>(result.sampleCount) * static_cast<quint64>(bps);
+        if (expectedBytes != static_cast<quint64>(result.payload.size()))
             return result;
 
         result.valid = true;
