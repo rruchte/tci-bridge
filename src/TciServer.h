@@ -30,7 +30,6 @@ public:
 	void setDebug(bool enabled);
 	void setQuiet(bool enabled);
 	void setTxTimingLogEnabled(bool enabled);
-	void setTxChronoEnabled(bool enabled);
 	bool transmitActive() const;
 
 signals:
@@ -109,7 +108,6 @@ private:
 	QTimer tx_chrono_timer_;
 	QElapsedTimer tx_chrono_clock_;
 	quint64 tx_chrono_samples_requested_ = 0;
-	bool tx_chrono_enabled_ = false;
 
 	quint32 tx_chrono_packet_count_ = 0;
 };
