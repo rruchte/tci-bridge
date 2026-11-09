@@ -96,7 +96,7 @@ private:
 	struct AudioClientState
 	{
 		quint32 sampleRate = 48000;
-		quint32 sampleType = TciStream::INT16;
+		quint32 sampleType = TciStream::FLOAT32;
 		quint32 channels = 1;
 		quint32 samplesPerFrame = 512;
 		quint32 packetCount = 0;
