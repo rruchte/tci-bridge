@@ -14,6 +14,7 @@ Currently supported:
 - TCI WebSocket server
 - RX audio stream to TCI clients
 - TX audio stream from TCI clients
+- TCI 2.1 TX_CHRONO server-side pacing, with permissive receipt of unsolicited valid TX_AUDIO_STREAM frames from the active TX owner
 - VFO frequency
 - TX VFO frequency shadowing / best-effort rigctld support
 - Split enable/disable
@@ -230,6 +231,19 @@ Stop service:
 ```bash
 sudo systemctl stop tci-bridge.service
 ```
+
+## TCI TX timing compatibility
+
+The server sends TCI 2.1 `TX_CHRONO` pacing frames when the active
+transmitting client selects TCI audio (`trx:0,true,tci;`). It also accepts
+valid `TX_AUDIO_STREAM` frames from that same TX owner even when they
+were not preceded by a chrono request. No proprietary capability negotiation
+or global TX timing flag is required.
+
+This permissive handling helps legacy push-style TCI clients, but does not
+guarantee compatibility with every older TCI implementation. The server
+still requires 48 kHz mono int16 TX audio and enforces PTT ownership,
+TX-audio source selection and the TX watchdog.
 
 ## TX safety
 
