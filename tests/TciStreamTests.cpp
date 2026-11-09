@@ -55,6 +55,35 @@ int main()
                "mono int16 conversion preserves bytes"))
         return 1;
 
+
+    // Native mono int16 is preserved byte-for-byte.
+    const auto native = TciStream::parseFrame(TciStream::makeRxAudioFrame(
+        pcm, 0, 48000, TciStream::INT16, 1, 1));
+    auto txNative = native;
+    txNative.streamType = TciStream::TX_AUDIO_STREAM;
+    if (!check(TciStream::convertTxToMonoInt16(txNative) == pcm,
+               "native mono int16 TX is unchanged"))
+        return 1;
+
+    for (auto type : { TciStream::INT16, TciStream::INT24,
+                       TciStream::INT32, TciStream::FLOAT32 }) {
+        for (quint32 channels : { 1U, 2U }) {
+            const QByteArray payload = TciStream::convertRxMonoInt16(pcm, type, channels);
+            auto frame = TciStream::parseFrame(TciStream::makeRxAudioFrame(
+                payload, 0, 48000, type, channels, 3));
+            frame.streamType = TciStream::TX_AUDIO_STREAM;
+            if (!check(frame.valid && TciStream::convertTxToMonoInt16(frame) == pcm,
+                       "TX format/channel roundtrip"))
+                return 1;
+        }
+    }
+
+    auto malformed = txNative;
+    malformed.sampleCount += 1;
+    if (!check(TciStream::convertTxToMonoInt16(malformed).isEmpty(),
+               "reject mismatched TX frame length"))
+        return 1;
+
     qInfo() << "TCI stream framing tests passed";
     return 0;
 }
