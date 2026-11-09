@@ -579,14 +579,13 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 
 						emit txAudioStarted();
 
-						// Begin requesting audio only after the audio sink
-						// has received its TX start notification.
-						if (tx_chrono_enabled_) {
-							tx_chrono_samples_requested_ = 0;
-							tx_chrono_clock_.start();
-							tx_chrono_timer_.start();
-							sendTxChrono();
-						}
+						// TX_CHRONO is the normal server-side audio clock.
+						// Valid TX_AUDIO_STREAM frames are also accepted
+						// without a preceding request for legacy interoperability.
+						tx_chrono_samples_requested_ = 0;
+						tx_chrono_clock_.start();
+						tx_chrono_timer_.start();
+						sendTxChrono();
 					}
 				} else {
 					// TCI audio is not selected as the transmit source.
@@ -789,15 +788,9 @@ void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 	}
 }
 
-void TciServer::setTxChronoEnabled(bool enabled)
-{
-	tx_chrono_enabled_ = enabled;
-	qInfo() << "TCI TX_CHRONO" << (enabled ? "enabled" : "disabled (push compatibility mode)");
-}
-
 void TciServer::sendTxChrono()
 {
-	if (!tx_chrono_enabled_ || !tx_audio_owner_ || !tx_owner_ ||
+	if (!tx_audio_owner_ || !tx_owner_ ||
 	    tx_audio_owner_ != tx_owner_ || !radio_ || !radio_->ptt()) {
 		tx_chrono_timer_.stop();
 		return;
