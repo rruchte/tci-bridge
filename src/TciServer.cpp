@@ -688,8 +688,9 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 				else if (requested == "float32") state.sampleType = TciStream::FLOAT32;
 				state.accumulator.clear();
 			}
-			QString current = "int16";
-			if (state.sampleType == TciStream::INT24) current = "int24";
+			QString current = "float32";
+			if (state.sampleType == TciStream::INT16) current = "int16";
+			else if (state.sampleType == TciStream::INT24) current = "int24";
 			else if (state.sampleType == TciStream::INT32) current = "int32";
 			else if (state.sampleType == TciStream::FLOAT32) current = "float32";
 			sendText(socket, QStringLiteral("audio_stream_sample_type:%1;").arg(current));
@@ -810,7 +811,7 @@ void TciServer::sendTxChrono()
 		return;
 
 	const QByteArray frame = TciStream::makeTxChronoFrame(
-		0, static_cast<quint32>(sampleRate), TciStream::INT16,
+		0, static_cast<quint32>(sampleRate), TciStream::FLOAT32,
 		1, samplesPerFrame, tx_chrono_packet_count_++);
 	tx_audio_owner_->sendBinaryMessage(frame);
 	tx_chrono_samples_requested_ = (samplesElapsed / samplesPerFrame + 1) * samplesPerFrame;
