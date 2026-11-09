@@ -132,22 +132,19 @@ void TciServer::onBinaryMessageReceived(const QByteArray &message)
 		return;
 	}
 
-	if (frame.sampleType != TciStream::INT16) {
-		qWarning() << "Only TX int16 audio is currently supported; got sampleType="
-				   << frame.sampleType;
+	// Decode all uncompressed TCI sample types to the native mono int16
+	// stream consumed by the existing Qt audio backend. Keep TX permission
+	// and ownership checks below, unchanged.
+	if (frame.codec != 0 || frame.channels < 1 || frame.channels > 2) {
+		qWarning() << "Unsupported TX audio codec/channel configuration:"
+		           << frame.codec << frame.channels;
 		return;
 	}
 
-	if (frame.channels != 1) {
-		qWarning() << "Only mono TX audio is currently supported; got channels="
-				   << frame.channels;
+	// An empty TX_AUDIO_STREAM packet is permitted to convey silence/no
+	// samples. It must not touch ownership, watchdog or the audio sink.
+	if (frame.sampleCount == 0 && frame.payload.isEmpty())
 		return;
-	}
-
-	if (frame.payload.isEmpty()) {
-		qWarning() << "Ignoring empty TX audio payload";
-		return;
-	}
 
 	if (!clientCanTransmit(socket, "TX audio frame"))
 		return;
@@ -169,11 +166,18 @@ void TciServer::onBinaryMessageReceived(const QByteArray &message)
 		return;
 	}
 
+	const QByteArray monoInt16 = TciStream::convertTxToMonoInt16(frame);
+	if (monoInt16.isEmpty()) {
+		qWarning() << "Unable to decode TX audio frame:"
+		           << frame.sampleType << frame.channels << frame.sampleCount;
+		return;
+	}
+
 	armTxWatchdog("TX audio frame");
 
 	logTxFrameTiming(frame);
 
-	emit txAudioFrame(frame.payload);
+	emit txAudioFrame(monoInt16);
 }
 
 void TciServer::onSocketDisconnected()
