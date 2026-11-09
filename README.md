@@ -360,3 +360,8 @@ Typical installed paths:
 /usr/local/share/tci-bridge/examples/tci-bridge.yml
 /usr/local/share/tci-bridge/examples/systemd/tci-bridge.service
 ```
+TCI audio defaults to float32 for RX streams and TX_CHRONO pacing requests.
+Clients may request another RX sample type using the standard
+`audio_stream_sample_type` command. The bridge currently retains 48 kHz,
+mono, and 512 sample values per packet as its defaults; sample-rate
+conversion and the remaining protocol default adjustments are separate work.
