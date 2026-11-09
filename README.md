@@ -242,8 +242,12 @@ or global TX timing flag is required.
 
 This permissive handling helps legacy push-style TCI clients, but does not
 guarantee compatibility with every older TCI implementation. The server
-still requires 48 kHz mono int16 TX audio and enforces PTT ownership,
-TX-audio source selection and the TX watchdog.
+accepts uncompressed 48 kHz TX PCM in int16, int24, int32, or float32,
+with one or two channels, converting to mono int16 before passing audio
+to the Qt output backend. Stereo input is downmixed; other sample rates
+and compressed codecs are not supported yet. The stream length must match
+the payload's number of sample values across all channels. PTT ownership,
+TX-audio source selection and the TX watchdog remain enforced.
 
 ## TX safety
 
