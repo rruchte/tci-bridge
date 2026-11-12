@@ -95,10 +95,10 @@ private:
 	RadioBackend *radio_ = nullptr;
 	struct AudioClientState
 	{
-		quint32 sampleRate = 48000;
-		quint32 sampleType = TciStream::FLOAT32;
-		quint32 channels = 1;
-		quint32 samplesPerFrame = 512;
+		quint32 sampleRate = TciStream::DEFAULT_RX_SAMPLE_RATE;
+		quint32 sampleType = TciStream::DEFAULT_RX_SAMPLE_TYPE;
+		quint32 channels = TciStream::DEFAULT_RX_CHANNELS;
+		quint32 samplesPerFrame = TciStream::DEFAULT_RX_SAMPLES_PER_FRAME;
 		quint32 packetCount = 0;
 		QByteArray accumulator;
 	};
