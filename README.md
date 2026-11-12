@@ -360,8 +360,15 @@ Typical installed paths:
 /usr/local/share/tci-bridge/examples/tci-bridge.yml
 /usr/local/share/tci-bridge/examples/systemd/tci-bridge.service
 ```
-TCI audio defaults to float32 for RX streams and TX_CHRONO pacing requests.
-Clients may request another RX sample type using the standard
-`audio_stream_sample_type` command. The bridge currently retains 48 kHz,
-mono, and 512 sample values per packet as its defaults; sample-rate
-conversion and the remaining protocol default adjustments are separate work.
+TCI 2.1 RX audio defaults to 48 kHz, float32, two channels, and 2048
+scalar sample values per frame (`Stream.length`), as documented for
+48 kHz in the protocol. Clients may change the RX sample format,
+channel count, and packet size using the standard audio-stream commands.
+When requesting two RX channels, the bridge currently duplicates its
+mono audio input into left and right channels. This is not equivalent
+to true complex I/Q audio in DIGL/DIGU modes, for which an appropriate
+radio backend would be needed.
+
+TX_CHRONO continues to request 48 kHz mono float32, 512 samples per
+request, independently of the RX packet-size default. TX resampling
+and complex RX audio are not implemented.
