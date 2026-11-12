@@ -22,6 +22,12 @@ namespace TciStream
 		FLOAT32 = 3
 	};
 
+	// TCI 2.1 default RX audio configuration at 48 kHz.
+	inline constexpr quint32 DEFAULT_RX_SAMPLE_RATE = 48000;
+	inline constexpr quint32 DEFAULT_RX_SAMPLE_TYPE = FLOAT32;
+	inline constexpr quint32 DEFAULT_RX_CHANNELS = 2;
+	inline constexpr quint32 DEFAULT_RX_SAMPLES_PER_FRAME = 2048;
+
 	struct StreamFrame
 	{
 		bool valid = false;
