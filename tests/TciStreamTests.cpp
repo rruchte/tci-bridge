@@ -15,6 +15,13 @@ bool check(bool ok, const char *name)
 
 int main()
 {
+    if (!check(TciStream::DEFAULT_RX_SAMPLE_RATE == 48000 &&
+               TciStream::DEFAULT_RX_SAMPLE_TYPE == TciStream::FLOAT32 &&
+               TciStream::DEFAULT_RX_CHANNELS == 2 &&
+               TciStream::DEFAULT_RX_SAMPLES_PER_FRAME == 2048,
+               "TCI 2.1 RX defaults"))
+        return 1;
+
     // Two mono samples, one positive and one negative.
     QByteArray pcm;
     pcm.append(char(0x00));
@@ -38,6 +45,24 @@ int main()
                parsedRx.count == 7 && parsedRx.channels == 2 &&
                parsedRx.sampleCount == 4,
                "RX counter, channels and scalar sample count"))
+        return 1;
+
+    // For 48-kHz stereo defaults, Stream.length is total scalar
+    // sample values across channels: 1024 time samples * 2 = 2048.
+    const QByteArray defaultMono(1024 * 2, char(0));
+    const QByteArray defaultStereo = TciStream::convertRxMonoInt16(
+        defaultMono, TciStream::DEFAULT_RX_SAMPLE_TYPE,
+        TciStream::DEFAULT_RX_CHANNELS);
+    const auto defaultFrame = TciStream::parseFrame(
+        TciStream::makeRxAudioFrame(
+            defaultStereo, 0, TciStream::DEFAULT_RX_SAMPLE_RATE,
+            TciStream::DEFAULT_RX_SAMPLE_TYPE,
+            TciStream::DEFAULT_RX_CHANNELS, 0));
+    if (!check(defaultFrame.valid &&
+               defaultFrame.sampleCount == 2048 &&
+               defaultFrame.channels == 2 &&
+               defaultFrame.payload.size() == 2048 * 4,
+               "48-kHz stereo float32 default packet size and count"))
         return 1;
 
     const QByteArray chrono = TciStream::makeTxChronoFrame(
