@@ -505,13 +505,14 @@ void RigctldWorker::querySupportedModes()
 {
 	// Hamlib documents M ? as the supported-mode query. A failed or
 	// unrecognized response is not evidence of any particular capability.
-	const QString response = transact(QStringLiteral("M ?"), 1000,
+	const QString response = transact(QStringLiteral("M ?"), 400,
 	                                  QStringLiteral("query supported modes"));
 	QStringList modes;
 	const QSet<QString> known = {
 		"AM", "FM", "WFM", "USB", "LSB", "CW", "CWR",
 		"RTTY", "RTTYR", "PKTUSB", "PKTLSB", "PKTFM",
-		"AMS", "DSB", "SAM", "SAL", "SAH"
+		"AMS", "DSB", "SAM", "SAL", "SAH",
+		"ECSSUSB", "ECSSLSB", "FA", "FAX"
 	};
 
 	for (const QString &token : response.toUpper().split(
