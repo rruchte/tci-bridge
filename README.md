@@ -372,3 +372,10 @@ radio backend would be needed.
 TX_CHRONO continues to request 48 kHz mono float32, 512 samples per
 request, independently of the RX packet-size default. TX resampling
 and complex RX audio are not implemented.
+
+TCI RX sample-rate requests now support 8, 12, 24, and 48 kHz per
+connection using a stateful, filtered decimator from the 48-kHz capture
+audio. The resampler preserves phase/history across incoming audio chunks
+and resets when an RX stream is stopped/restarted or its sample rate changes.
+The radio-side TX audio output remains 48 kHz; lower-rate TX resampling is
+not yet implemented and is deliberately rejected rather than mislabeled.
