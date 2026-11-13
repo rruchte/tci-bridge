@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class RadioBackend : public QObject
 {
@@ -30,6 +31,10 @@ public:
 
 	virtual bool online() const = 0;
 
+	// Empty means capabilities could not be determined. Never synthesize
+	// supported modes from the current mode alone.
+	virtual QStringList supportedModes() const { return {}; }
+
 signals:
 	void frequencyChanged(qint64 hz);
 	void txFrequencyChanged(qint64 hz);
@@ -38,4 +43,5 @@ signals:
 	void pttChanged(bool enabled);
 
 	void onlineChanged(bool online);
+	void supportedModesChanged(QStringList modes);
 };
