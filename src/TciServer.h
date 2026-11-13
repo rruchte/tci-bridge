@@ -12,6 +12,7 @@
 #include "RadioBackend.h"
 #include "TciCommand.h"
 #include "TciStreamFrame.h"
+#include "TciSampleRate.h"
 
 class TciServer final : public QObject
 {
@@ -101,6 +102,7 @@ private:
 		quint32 samplesPerFrame = TciStream::DEFAULT_RX_SAMPLES_PER_FRAME;
 		quint32 packetCount = 0;
 		QByteArray accumulator;
+		TciSampleRate::RxDecimator decimator;
 	};
 	QHash<QWebSocket *, AudioClientState> audio_clients_;
 	QSet<QWebSocket *> audio_stream_clients_;
