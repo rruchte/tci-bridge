@@ -112,4 +112,6 @@ private:
 	quint64 tx_chrono_samples_requested_ = 0;
 
 	quint32 tx_chrono_packet_count_ = 0;
+	TciSampleRate::TxInterpolator tx_interpolator_;
+	quint32 tx_input_sample_rate_ = 48000;
 };
