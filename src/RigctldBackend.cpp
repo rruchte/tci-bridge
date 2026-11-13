@@ -96,6 +96,10 @@ void RigctldBackend::setupWorker()
 			this, &RigctldBackend::updateMode,
 			Qt::QueuedConnection);
 
+	connect(worker_, &RigctldWorker::supportedModesChanged,
+			this, &RigctldBackend::updateSupportedModes,
+			Qt::QueuedConnection);
+
 	connect(worker_, &RigctldWorker::pttChanged,
 			this, &RigctldBackend::updatePtt,
 			Qt::QueuedConnection);
@@ -221,6 +225,19 @@ void RigctldBackend::setPtt(bool enabled)
 	}
 
 	emit requestSetPtt(enabled);
+}
+
+QStringList RigctldBackend::supportedModes() const
+{
+	return supported_modes_;
+}
+
+void RigctldBackend::updateSupportedModes(const QStringList &modes)
+{
+	if (supported_modes_ == modes)
+		return;
+	supported_modes_ = modes;
+	emit supportedModesChanged(modes);
 }
 
 bool RigctldBackend::online() const
