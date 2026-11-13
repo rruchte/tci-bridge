@@ -384,3 +384,18 @@ and resets when an RX stream is stopped/restarted or its sample rate changes.
 The radio-side TX audio output remains 48 kHz, with lower-rate TX
 PCM upsampled before playback. TX resampler history resets when TX audio
 ownership begins or ends, and on a change in incoming sample rate.
+
+### Startup capability declarations
+
+The startup burst reports the TCI version, bridge device identifier,
+effective `receive_only` permission, and one receiver/one channel topology.
+When TX permission changes at runtime, the bridge broadcasts the updated
+`receive_only` state.
+
+The rigctld radio backend currently exposes live frequency, mode, and PTT
+state but **not** authoritative supported frequency limits, IF/panorama
+limits, or the rig's full supported-mode set. Accordingly, the bridge does
+not send `vfo_limits`, `if_limits`, or `modulations_list` placeholders.
+It would be misleading to claim those values on behalf of an arbitrary
+Hamlib radio. A future radio capability API can provide them, but they
+must be obtained or configured from verified per-rig information.
