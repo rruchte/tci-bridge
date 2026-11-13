@@ -63,6 +63,8 @@ void RigctldWorker::stop()
         socket_ = nullptr;
     }
 
+    modes_queried_ = false;
+    emit supportedModesChanged({});
     setRadioUsable(false, QStringLiteral("worker stopped"));
 
     if (connected_) {
@@ -100,6 +102,8 @@ bool RigctldWorker::ensureConnected()
 		qWarning().noquote() << "[RigctldWorker]" << message;
 		emit error(message);
 
+		modes_queried_ = false;
+		emit supportedModesChanged({});
 		setRadioUsable(false, message);
 
 		if (connected_) {
@@ -438,6 +442,8 @@ void RigctldWorker::notePollFailure(const QString &operation, const QString &res
 void RigctldWorker::forceReconnect(const QString &reason)
 {
 	qWarning().noquote() << "[RigctldWorker] forcing rigctld TCP reconnect:" << reason;
+	modes_queried_ = false;
+	emit supportedModesChanged({});
 
 	if (socket_) {
 		socket_->abort();
