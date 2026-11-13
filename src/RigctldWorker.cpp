@@ -4,6 +4,8 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QRegularExpression>
+#include <QSet>
 
 RigctldWorker::RigctldWorker(QObject *parent)
 	: QObject(parent)
@@ -467,6 +469,11 @@ void RigctldWorker::poll()
 		pollOptionalStateOnce();
 	}
 
+	if (!modes_queried_ && radio_usable_) {
+		modes_queried_ = true;
+		querySupportedModes();
+	}
+
 	const qint64 elapsed = timer.elapsed();
 	if (elapsed > 100) {
 		qWarning() << "[RigctldWorker] slow poll:" << elapsed << "ms";
@@ -492,6 +499,43 @@ bool RigctldWorker::pollFrequency()
 	}
 
 	return true;
+}
+
+void RigctldWorker::querySupportedModes()
+{
+	// Hamlib documents M ? as the supported-mode query. A failed or
+	// unrecognized response is not evidence of any particular capability.
+	const QString response = transact(QStringLiteral("M ?"), 1000,
+	                                  QStringLiteral("query supported modes"));
+	QStringList modes;
+	const QSet<QString> known = {
+		"AM", "FM", "WFM", "USB", "LSB", "CW", "CWR",
+		"RTTY", "RTTYR", "PKTUSB", "PKTLSB", "PKTFM",
+		"AMS", "DSB", "SAM", "SAL", "SAH"
+	};
+
+	for (const QString &token : response.toUpper().split(
+	         QRegularExpression(QStringLiteral("[,\\s]+")),
+	         Qt::SkipEmptyParts)) {
+		if (token == "RPRT")
+			break;
+		if (!known.contains(token)) {
+			qWarning() << "[RigctldWorker] unrecognized supported-mode response:"
+			           << response;
+			return;
+		}
+		QString tciMode = token;
+		if (tciMode == "PKTUSB") tciMode = "DIGU";
+		if (tciMode == "PKTLSB") tciMode = "DIGL";
+		if (!modes.contains(tciMode))
+			modes.append(tciMode);
+	}
+	if (modes.isEmpty()) {
+		qWarning() << "[RigctldWorker] no usable supported modes:" << response;
+		return;
+	}
+	qInfo() << "[RigctldWorker] discovered supported modes:" << modes;
+	emit supportedModesChanged(modes);
 }
 
 void RigctldWorker::pollOptionalStateOnce()
