@@ -35,6 +35,8 @@ add_executable(tci-bridge
         src/TciCommand.cpp
         src/TciStreamFrame.h
         src/TciStreamFrame.cpp
+        src/TciSampleRate.h
+        src/TciSampleRate.cpp
         src/PcmConvert.h
         src/PcmConvert.cpp
 )
@@ -80,6 +82,7 @@ if(TCI_BRIDGE_BUILD_TESTS)
     add_executable(tci-stream-tests
         tests/TciStreamTests.cpp
         src/TciStreamFrame.cpp
+        src/TciSampleRate.cpp
     )
     target_include_directories(tci-stream-tests PRIVATE src)
     target_link_libraries(tci-stream-tests PRIVATE Qt6::Core)
