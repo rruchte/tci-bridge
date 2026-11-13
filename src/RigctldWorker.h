@@ -34,6 +34,7 @@ signals:
 	void txFrequencyChanged(qint64 hz);
 	void splitChanged(bool enabled);
 	void modeChanged(QString mode);
+	void supportedModesChanged(QStringList modes);
 	void pttChanged(bool enabled);
 
 	void connectedChanged(bool connected);
@@ -68,6 +69,7 @@ private:
 	void pollTxFrequencyBestEffort();
 	void pollSplitBestEffort();
 	void pollOptionalStateOnce();
+	void querySupportedModes();
 
 	void notePollSuccess();
 	void notePollFailure(const QString &operation, const QString &response = QString());
@@ -94,6 +96,7 @@ private:
 	bool polling_suspended_ = false;
 
 	bool optional_state_polled_ = false;
+	bool modes_queried_ = false;
 	bool tx_freq_query_works_ = true;
 	bool split_query_works_ = true;
 	bool split_set_works_ = true;
