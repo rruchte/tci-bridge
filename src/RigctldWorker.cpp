@@ -509,38 +509,48 @@ bool RigctldWorker::pollFrequency()
 
 void RigctldWorker::querySupportedModes()
 {
-	// Hamlib documents M ? as the supported-mode query. A failed or
-	// unrecognized response is not evidence of any particular capability.
+	// Hamlib's M ? returns space-separated backend mode tokens followed by
+	// an RPRT status. Preserve distinct narrow/data modes: collapsing
+	// FM-D or PKTFMN into FM would misrepresent the rig's capabilities.
 	const QString response = transact(QStringLiteral("M ?"), 400,
 	                                  QStringLiteral("query supported modes"));
-	QStringList modes;
+
+	const QStringList lines = response.split('\n', Qt::SkipEmptyParts);
+	if (lines.size() != 2 || lines.last().trimmed() != "RPRT 0") {
+		qWarning() << "[RigctldWorker] supported-mode query failed:" << response;
+		return;
+	}
+
 	const QSet<QString> known = {
-		"AM", "FM", "WFM", "USB", "LSB", "CW", "CWR",
-		"RTTY", "RTTYR", "PKTUSB", "PKTLSB", "PKTFM",
-		"AMS", "DSB", "SAM", "SAL", "SAH",
-		"ECSSUSB", "ECSSLSB", "FA", "FAX"
+		"AM", "AMN", "FM", "FM-D", "FMN", "WFM", "USB", "LSB",
+		"CW", "CWR", "RTTY", "RTTYR", "PKTUSB", "PKTLSB",
+		"PKTFM", "PKTFMN", "PKTAM", "AMS", "DSB", "SAM",
+		"SAL", "SAH", "ECSSUSB", "ECSSLSB", "FA", "FAX",
+		"CWN", "PSK", "PSKR", "C4FM"
 	};
 
-	for (const QString &token : response.toUpper().split(
-	         QRegularExpression(QStringLiteral("[,\\s]+")),
-	         Qt::SkipEmptyParts)) {
-		if (token == "RPRT")
-			break;
+	QStringList modes;
+	const QStringList tokens = lines.first().trimmed().toUpper().split(
+		QRegularExpression(QStringLiteral("[,\\s]+")),
+		Qt::SkipEmptyParts);
+	for (const QString &token : tokens) {
 		if (!known.contains(token)) {
-			qWarning() << "[RigctldWorker] unrecognized supported-mode response:"
-			           << response;
+			qWarning() << "[RigctldWorker] unrecognized supported-mode token:"
+			           << token << "full response:" << response;
 			return;
 		}
 		QString tciMode = token;
 		if (tciMode == "PKTUSB") tciMode = "DIGU";
-		if (tciMode == "PKTLSB") tciMode = "DIGL";
+		else if (tciMode == "PKTLSB") tciMode = "DIGL";
 		if (!modes.contains(tciMode))
 			modes.append(tciMode);
 	}
+
 	if (modes.isEmpty()) {
 		qWarning() << "[RigctldWorker] no usable supported modes:" << response;
 		return;
 	}
+
 	qInfo() << "[RigctldWorker] discovered supported modes:" << modes;
 	emit supportedModesChanged(modes);
 }
