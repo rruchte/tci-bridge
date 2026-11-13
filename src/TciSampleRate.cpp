@@ -27,6 +27,83 @@ bool isSupported(quint32 rate)
     return rate == 8000 || rate == 12000 || rate == 24000 || rate == 48000;
 }
 
+bool TxInterpolator::configure(quint32 inputRate)
+{
+    if (!isSupported(inputRate))
+        return false;
+
+    input_rate_ = inputRate;
+    factor_ = 48000 / static_cast<int>(inputRate);
+    for (auto &phase : coefficients_)
+        phase.fill(0.0);
+
+    if (factor_ != 1) {
+        // For each output phase, reconstruct a delayed input-time sample.
+        // The filter suppresses images above the input Nyquist frequency.
+        // The delay is 16 source samples, identical for every output phase.
+        constexpr double delay = (Taps - 1) / 2.0;
+        constexpr double cutoff = 0.45;
+        for (int phase = 0; phase < factor_; ++phase) {
+            const double fraction = static_cast<double>(phase) / factor_;
+            double sum = 0.0;
+            for (int tap = 0; tap < Taps; ++tap) {
+                const double displacement = tap - delay - fraction;
+                const double kernel = displacement == 0.0
+                    ? 2.0 * cutoff
+                    : std::sin(2.0 * Pi * cutoff * displacement) /
+                      (Pi * displacement);
+                const double window = 0.42
+                    - 0.5 * std::cos(2.0 * Pi * tap / (Taps - 1))
+                    + 0.08 * std::cos(4.0 * Pi * tap / (Taps - 1));
+                coefficients_[phase][tap] = kernel * window;
+                sum += coefficients_[phase][tap];
+            }
+            for (double &coefficient : coefficients_[phase])
+                coefficient /= sum;
+        }
+    }
+
+    reset();
+    return true;
+}
+
+void TxInterpolator::reset()
+{
+    history_.fill(0);
+    head_ = 0;
+}
+
+QByteArray TxInterpolator::process(const QByteArray &pcm)
+{
+    if (pcm.size() % 2)
+        return {};
+
+    if (factor_ == 1)
+        return pcm;
+
+    QByteArray output;
+    output.reserve((pcm.size() / 2) * factor_ * 2);
+    const auto *input = reinterpret_cast<const unsigned char *>(pcm.constData());
+
+    for (qsizetype position = 0; position < pcm.size(); position += 2) {
+        history_[head_] = read16(input + position);
+        head_ = (head_ + 1) % Taps;
+
+        for (int phase = 0; phase < factor_; ++phase) {
+            double value = 0.0;
+            for (int tap = 0; tap < Taps; ++tap) {
+                const int index = (head_ + Taps - 1 - tap) % Taps;
+                value += coefficients_[phase][tap] * history_[index];
+            }
+            const auto rounded = static_cast<int>(std::lround(value));
+            append16(output, static_cast<qint16>(
+                std::clamp(rounded, -32768, 32767)));
+        }
+    }
+
+    return output;
+}
+
 bool RxDecimator::configure(quint32 outputRate)
 {
     if (!isSupported(outputRate))
