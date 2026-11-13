@@ -253,6 +253,7 @@ void RigctldBackend::updateConnected(bool connected)
 
 	if (!connected_) {
 		radio_usable_ = false;
+		updateSupportedModes({});
 		emit onlineChanged(false);
 	}
 }
