@@ -370,12 +370,17 @@ to true complex I/Q audio in DIGL/DIGU modes, for which an appropriate
 radio backend would be needed.
 
 TX_CHRONO continues to request 48 kHz mono float32, 512 samples per
-request, independently of the RX packet-size default. TX resampling
-and complex RX audio are not implemented.
+request, independently of the RX packet-size default. In addition to
+48-kHz TX, the bridge accepts 8-, 12-, and 24-kHz uncompressed TX packets
+from the active TX owner. Those packets are converted to 48-kHz mono
+int16 with a stateful, filtered interpolator before reaching Qt audio.
+The native 48-kHz TX path remains byte-for-byte unchanged. Complex RX
+audio is not implemented.
 
 TCI RX sample-rate requests now support 8, 12, 24, and 48 kHz per
 connection using a stateful, filtered decimator from the 48-kHz capture
 audio. The resampler preserves phase/history across incoming audio chunks
 and resets when an RX stream is stopped/restarted or its sample rate changes.
-The radio-side TX audio output remains 48 kHz; lower-rate TX resampling is
-not yet implemented and is deliberately rejected rather than mislabeled.
+The radio-side TX audio output remains 48 kHz, with lower-rate TX
+PCM upsampled before playback. TX resampler history resets when TX audio
+ownership begins or ends, and on a change in incoming sample rate.
