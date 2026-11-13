@@ -645,6 +645,7 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		if (!audio_clients_.contains(socket))
 			audio_clients_.insert(socket, AudioClientState{});
 		audio_clients_[socket].accumulator.clear();
+		audio_clients_[socket].decimator.reset();
 		audio_stream_clients_.insert(socket);
 		qInfo() << "Enabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
@@ -655,8 +656,10 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		if (a.size() != 1 || a.at(0) != "0")
 			return;
 		audio_stream_clients_.remove(socket);
-		if (audio_clients_.contains(socket))
+		if (audio_clients_.contains(socket)) {
 			audio_clients_[socket].accumulator.clear();
+			audio_clients_[socket].decimator.reset();
+		}
 		qInfo() << "Disabled RX audio stream for client:" << socket->peerAddress().toString() << socket->peerPort();
 		return;
 	}
@@ -673,8 +676,15 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 		if (name == "audio_samplerate") {
 			// The current Qt audio backend delivers 48-kHz PCM. Do not
 			// claim sample rates that are not actually resampled.
-			if (a.size() == 1 && a.at(0) == "48000")
-				state.sampleRate = 48000;
+			if (a.size() == 1) {
+				bool ok = false;
+				const quint32 requested = a.at(0).toUInt(&ok);
+				if (ok && TciSampleRate::isSupported(requested) &&
+				    state.decimator.configure(requested)) {
+					state.sampleRate = requested;
+					state.accumulator.clear();
+				}
+			}
 			sendText(socket, QStringLiteral("audio_samplerate:%1;").arg(state.sampleRate));
 			return;
 		}
@@ -770,7 +780,8 @@ void TciServer::sendRxAudio(const QByteArray &pcm, int sampleRate, int channels)
 		if (!audio_stream_clients_.contains(it.key()))
 			continue;
 		AudioClientState &state = it.value();
-		state.accumulator.append(pcm);
+		const QByteArray atRequestedRate = state.decimator.process(pcm);
+		state.accumulator.append(atRequestedRate);
 		// Stream.length counts individual sample values across channels.
 		// The mono source must therefore contribute N/channels time samples.
 		const int monoSamples = static_cast<int>(state.samplesPerFrame / state.channels);
