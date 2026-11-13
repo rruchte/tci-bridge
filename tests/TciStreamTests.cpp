@@ -60,6 +60,60 @@ int main()
             return 1;
     }
 
+    // TX upsampling must preserve 48-kHz bytes and carry filter history
+    // across arbitrarily split WebSocket frames.
+    TciSampleRate::TxInterpolator nativeTx;
+    if (!check(nativeTx.configure(48000) &&
+               nativeTx.process(source) == source,
+               "48-kHz TX remains byte-for-byte identical"))
+        return 1;
+
+    for (quint32 rate : { 8000U, 12000U, 24000U }) {
+        TciSampleRate::TxInterpolator continuous, split;
+        if (!check(continuous.configure(rate) && split.configure(rate),
+                   "configure supported TX rate"))
+            return 1;
+
+        QByteArray lowerRate;
+        lowerRate.reserve(rate / 10 * 2);
+        for (quint32 i = 0; i < rate / 10; ++i) {
+            const auto sample = static_cast<qint16>(std::lround(
+                12000.0 * std::sin(2.0 * 3.14159265358979323846 *
+                                   1000.0 * i / rate)));
+            const quint16 bits = static_cast<quint16>(sample);
+            lowerRate.append(char(bits & 0xff));
+            lowerRate.append(char((bits >> 8) & 0xff));
+        }
+
+        const QByteArray whole = continuous.process(lowerRate);
+        QByteArray pieces;
+        const int boundaries[] = { 38, 114, 626, int(lowerRate.size()) };
+        int previous = 0;
+        for (int boundary : boundaries) {
+            pieces.append(split.process(
+                lowerRate.mid(previous, boundary - previous)));
+            previous = boundary;
+        }
+        if (!check(whole == pieces, "TX resampler chunk continuity"))
+            return 1;
+        if (!check(whole.size() == lowerRate.size() * 48000 / int(rate),
+                   "TX resampler output count"))
+            return 1;
+
+        // Verify that the nonzero waveform survives the interpolation.
+        int peak = 0;
+        for (qsizetype i = 500; i < whole.size(); i += 2) {
+            const auto *p = reinterpret_cast<const unsigned char *>(
+                whole.constData() + i);
+            const qint16 sample = static_cast<qint16>(
+                quint16(p[0]) | (quint16(p[1]) << 8));
+            peak = std::max(peak, std::abs(static_cast<int>(sample)));
+        }
+        if (!check(peak > 9000 && peak < 14000,
+                   "TX interpolator preserves expected tone amplitude"))
+            return 1;
+    }
+
     if (!check(!TciSampleRate::isSupported(44100), "reject unsupported rate"))
         return 1;
 
