@@ -1,4 +1,5 @@
 #include "TciServer.h"
+#include "TciStartup.h"
 
 #include <QDebug>
 #include <QElapsedTimer>
@@ -285,19 +286,10 @@ void TciServer::onRadioOnlineChanged(bool online)
 
 void TciServer::sendStartupBurst(QWebSocket *socket)
 {
-	sendText(socket, "protocol:tci-bridge,2.1;");
-	sendText(socket, "device:tci-bridge;");
-	// "receive_only" reflects the effective TX permission of this bridge.
-	// The attached rig's capability envelope is not exposed by RadioBackend.
-	sendText(socket, QStringLiteral("receive_only:%1;").arg(boolText(!transmit_enabled_)));
-	sendText(socket, "trx_count:1;");
-	sendText(socket, "channels_count:1;");
-
-	// Do not fabricate vfo_limits, if_limits, or modulations_list.
-	// rigctld's current frequency/mode are available via sendState(),
-	// but the backend does not yet report supported ranges and modes.
-
-	sendText(socket, "ready;");
+	// Radio-specific vfo_limits, if_limits, and modulations_list cannot
+	// safely be advertised until the backend provides verified capabilities.
+	for (const QString &message : TciStartup::messages(transmit_enabled_))
+		sendText(socket, message);
 }
 
 void TciServer::setTransmitEnabled(bool enabled)
