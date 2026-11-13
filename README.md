@@ -399,3 +399,12 @@ not send `vfo_limits`, `if_limits`, or `modulations_list` placeholders.
 It would be misleading to claim those values on behalf of an arbitrary
 Hamlib radio. A future radio capability API can provide them, but they
 must be obtained or configured from verified per-rig information.
+
+The rigctld backend now queries Hamlib's documented `M ?` operation
+once after the radio becomes usable. It advertises `modulations_list`
+only if a complete recognizable mode list is returned. Discovery is
+asynchronous; already-connected TCI clients receive the mode list when
+it arrives, while later clients receive it in their startup burst.
+No vendor-specific TCI negotiation has been introduced. Frequency and
+IF limits remain omitted because they are not yet available through a
+verified structured capability API.
