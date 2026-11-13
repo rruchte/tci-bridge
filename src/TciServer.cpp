@@ -287,16 +287,15 @@ void TciServer::sendStartupBurst(QWebSocket *socket)
 {
 	sendText(socket, "protocol:tci-bridge,2.1;");
 	sendText(socket, "device:tci-bridge;");
-	sendText(socket, "receive_only:false;");
+	// "receive_only" reflects the effective TX permission of this bridge.
+	// The attached rig's capability envelope is not exposed by RadioBackend.
+	sendText(socket, QStringLiteral("receive_only:%1;").arg(boolText(!transmit_enabled_)));
 	sendText(socket, "trx_count:1;");
 	sendText(socket, "channels_count:1;");
 
-	// TODO Replace with actual supported limits if known.
-	sendText(socket, "vfo_limits:100000,60000000;");
-	sendText(socket, "if_limits:-48000,48000;");
-
-	// TODO Must reflect the actual radio's supported modes.
-	sendText(socket, "modulations_list:AM,LSB,USB,CW,FM;");
+	// Do not fabricate vfo_limits, if_limits, or modulations_list.
+	// rigctld's current frequency/mode are available via sendState(),
+	// but the backend does not yet report supported ranges and modes.
 
 	sendText(socket, "ready;");
 }
@@ -306,6 +305,11 @@ void TciServer::setTransmitEnabled(bool enabled)
 	transmit_enabled_ = enabled;
 
 	qInfo() << "Transmit control" << (transmit_enabled_ ? "ENABLED" : "DISABLED");
+
+	// The permission may change while a client is connected. Keep the
+	// advertised receive-only state synchronized with the actual policy.
+	if (server_.isListening())
+		broadcastText(QStringLiteral("receive_only:%1;").arg(boolText(!transmit_enabled_)));
 
 	if (!transmit_enabled_)
 		stopTransmit(QStringLiteral("transmit disabled"), true);
