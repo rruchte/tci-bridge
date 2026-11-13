@@ -126,9 +126,8 @@ void TciServer::onBinaryMessageReceived(const QByteArray &message)
 		return;
 	}
 
-	if (frame.sampleRate != 48000) {
-		qWarning() << "Only 48000 Hz TX audio is currently supported; got sampleRate="
-				   << frame.sampleRate;
+	if (!TciSampleRate::isSupported(frame.sampleRate)) {
+		qWarning() << "Unsupported TCI TX sample rate:" << frame.sampleRate;
 		return;
 	}
 
@@ -173,11 +172,22 @@ void TciServer::onBinaryMessageReceived(const QByteArray &message)
 		return;
 	}
 
+	// Process only valid frames from the current TX owner. Reconfigure
+	// on a rate transition; each rate uses its own continuous FIR state.
+	if (tx_input_sample_rate_ != frame.sampleRate) {
+		if (!tx_interpolator_.configure(frame.sampleRate))
+			return;
+		tx_input_sample_rate_ = frame.sampleRate;
+	}
+	const QByteArray output48k = tx_interpolator_.process(monoInt16);
+	if (output48k.isEmpty())
+		return;
+
 	armTxWatchdog("TX audio frame");
 
 	logTxFrameTiming(frame);
 
-	emit txAudioFrame(monoInt16);
+	emit txAudioFrame(output48k);
 }
 
 void TciServer::onSocketDisconnected()
@@ -577,6 +587,8 @@ void TciServer::handleCommand(QWebSocket *socket, const TciCommand &command)
 							it.value().accumulator.clear();
 						}
 						tx_chrono_packet_count_ = 0;
+						tx_interpolator_.configure(48000);
+						tx_input_sample_rate_ = 48000;
 
 						if (radio_)
 							radio_->setPollingSuspended(true);
@@ -844,6 +856,8 @@ void TciServer::stopTxAudioStream(const QString &reason)
 		it.value().accumulator.clear();
 	}
 	tx_chrono_packet_count_ = 0;
+	tx_interpolator_.configure(48000);
+	tx_input_sample_rate_ = 48000;
 
 	emit txAudioStopped();
 
