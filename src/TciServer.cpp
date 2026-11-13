@@ -25,6 +25,15 @@ TciServer::TciServer(RadioBackend *radio, QObject *parent) :
 
 	connect(radio_, &RadioBackend::onlineChanged, this, &TciServer::onRadioOnlineChanged);
 
+	connect(radio_, &RadioBackend::supportedModesChanged, this,
+	        [this](const QStringList &modes) {
+		        if (modes.isEmpty())
+			        return;
+		        const QString announcement =
+			        QStringLiteral("modulations_list:%1;").arg(modes.join(','));
+		        broadcastText(announcement);
+	        });
+
 	tx_watchdog_.setSingleShot(true);
 
 	connect(&tx_watchdog_, &QTimer::timeout, this, &TciServer::onTxWatchdogExpired);
@@ -288,8 +297,14 @@ void TciServer::sendStartupBurst(QWebSocket *socket)
 {
 	// Radio-specific vfo_limits, if_limits, and modulations_list cannot
 	// safely be advertised until the backend provides verified capabilities.
-	for (const QString &message : TciStartup::messages(transmit_enabled_))
+	for (const QString &message : TciStartup::messages(transmit_enabled_)) {
+		if (message == QStringLiteral("ready;") && radio_ &&
+		    !radio_->supportedModes().isEmpty()) {
+			sendText(socket, QStringLiteral("modulations_list:%1;")
+			                 .arg(radio_->supportedModes().join(',')));
+		}
 		sendText(socket, message);
+	}
 }
 
 void TciServer::setTransmitEnabled(bool enabled)
