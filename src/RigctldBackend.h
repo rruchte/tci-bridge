@@ -39,6 +39,7 @@ public:
 	void setDebug(bool enabled);
 
 	bool online() const override;
+	QStringList supportedModes() const override;
 
 	signals:
 		void requestStart(QString host, quint16 port, int pollMs);
@@ -59,6 +60,7 @@ private:
 	void updateTxFrequency(qint64 hz);
 	void updateSplit(bool enabled);
 	void updateMode(const QString &mode);
+	void updateSupportedModes(const QStringList &modes);
 	void updatePtt(bool enabled);
 
 	void updateConnected(bool connected);
@@ -79,6 +81,7 @@ private:
 	qint64 tx_frequency_hz_ = 0;
 	bool split_enabled_ = false;
 	QString mode_ = QStringLiteral("USB");
+	QStringList supported_modes_;
 	bool ptt_ = false;
 
 	bool polling_suspended_ = false;
