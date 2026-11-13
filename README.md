@@ -402,7 +402,9 @@ must be obtained or configured from verified per-rig information.
 
 The rigctld backend now queries Hamlib's documented `M ?` operation
 once after the radio becomes usable. It advertises `modulations_list`
-only if a complete recognizable mode list is returned. Discovery is
+only if a complete recognizable mode list is returned, including a successful
+`RPRT 0` status. The Yaesu FTDX-10's FM-D, FMN, AMN, and PKTFMN tokens
+are recognized and retained as distinct modes rather than folded into FM. Discovery is
 asynchronous; already-connected TCI clients receive the mode list when
 it arrives, while later clients receive it in their startup burst.
 No vendor-specific TCI negotiation has been introduced. Frequency and
