@@ -1,4 +1,5 @@
 #include "TciStreamFrame.h"
+#include "TciStartup.h"
 #include "TciSampleRate.h"
 
 #include <cmath>
@@ -19,6 +20,25 @@ bool check(bool ok, const char *name)
 
 int main()
 {
+    const QStringList rxOnlyStartup = TciStartup::messages(false);
+    const QStringList txStartup = TciStartup::messages(true);
+    if (!check(rxOnlyStartup.contains("receive_only:true;") &&
+               txStartup.contains("receive_only:false;") &&
+               rxOnlyStartup.last() == "ready;" &&
+               txStartup.last() == "ready;" &&
+               rxOnlyStartup.contains("trx_count:1;") &&
+               txStartup.contains("channels_count:1;"),
+               "startup reflects TX permission and stable bridge topology"))
+        return 1;
+
+    for (const QString &message : txStartup) {
+        if (!check(!message.startsWith("vfo_limits:") &&
+                   !message.startsWith("if_limits:") &&
+                   !message.startsWith("modulations_list:"),
+                   "startup does not claim unsupported radio capabilities"))
+            return 1;
+    }
+
     if (!check(TciStream::DEFAULT_RX_SAMPLE_RATE == 48000 &&
                TciStream::DEFAULT_RX_SAMPLE_TYPE == TciStream::FLOAT32 &&
                TciStream::DEFAULT_RX_CHANNELS == 2 &&
