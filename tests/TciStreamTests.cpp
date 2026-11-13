@@ -1,4 +1,8 @@
 #include "TciStreamFrame.h"
+#include "TciSampleRate.h"
+
+#include <cmath>
+#include <algorithm>
 
 #include <QByteArray>
 #include <QDebug>
@@ -20,6 +24,70 @@ int main()
                TciStream::DEFAULT_RX_CHANNELS == 2 &&
                TciStream::DEFAULT_RX_SAMPLES_PER_FRAME == 2048,
                "TCI 2.1 RX defaults"))
+        return 1;
+
+
+    // Native 48-kHz frames must remain bit-identical.
+    TciSampleRate::RxDecimator nativeRate;
+    if (!check(nativeRate.configure(48000), "configure 48-kHz RX"))
+        return 1;
+    QByteArray source(48000 * 2 / 10, char(0));
+    for (int i = 0; i < source.size(); i += 2) {
+        source[i] = char((i / 2) & 0xff);
+        source[i + 1] = char(((i / 2) >> 8) & 0xff);
+    }
+    if (!check(nativeRate.process(source) == source, "48-kHz RX passthrough"))
+        return 1;
+
+    for (quint32 rate : { 8000U, 12000U, 24000U }) {
+        TciSampleRate::RxDecimator whole, chunks;
+        if (!check(whole.configure(rate) && chunks.configure(rate),
+                   "configure supported lower RX rate"))
+            return 1;
+        const QByteArray expected = whole.process(source);
+        QByteArray actual;
+        // Chunk boundaries are deliberately not aligned to the ratio.
+        const int splits[] = { 102, 370, 2046, 8192, int(source.size()) };
+        int previous = 0;
+        for (int boundary : splits) {
+            actual.append(chunks.process(source.mid(previous, boundary - previous)));
+            previous = boundary;
+        }
+        if (!check(actual == expected, "resampler preserves continuity across chunks"))
+            return 1;
+        if (!check(actual.size() == source.size() * int(rate) / 48000,
+                   "correct lower-rate output sample count"))
+            return 1;
+    }
+
+    if (!check(!TciSampleRate::isSupported(44100), "reject unsupported rate"))
+        return 1;
+
+    // 9-kHz input at 48 kHz must be suppressed before conversion to 12 kHz,
+    // where it would otherwise fold into the audible band as a 3-kHz alias.
+    TciSampleRate::RxDecimator filtered;
+    if (!check(filtered.configure(12000), "configure anti-alias test"))
+        return 1;
+    QByteArray tone;
+    tone.reserve(4800 * 2);
+    constexpr double pi = 3.14159265358979323846;
+    for (int i = 0; i < 4800; ++i) {
+        const auto sample = static_cast<qint16>(
+            std::lround(12000.0 * std::sin(2.0 * pi * 9000.0 * i / 48000.0)));
+        const quint16 bits = static_cast<quint16>(sample);
+        tone.append(char(bits & 0xff));
+        tone.append(char((bits >> 8) & 0xff));
+    }
+    const QByteArray filteredOutput = filtered.process(tone);
+    int peak = 0;
+    for (qsizetype i = 200; i < filteredOutput.size(); i += 2) {
+        const auto *p = reinterpret_cast<const unsigned char *>(
+            filteredOutput.constData() + i);
+        const auto value = static_cast<qint16>(
+            quint16(p[0]) | (quint16(p[1]) << 8));
+        peak = std::max(peak, std::abs(static_cast<int>(value)));
+    }
+    if (!check(peak < 100, "12-kHz RX anti-alias filtering"))
         return 1;
 
     // Two mono samples, one positive and one negative.
