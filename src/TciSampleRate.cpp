@@ -47,7 +47,7 @@ bool TxInterpolator::configure(quint32 inputRate)
             const double fraction = static_cast<double>(phase) / factor_;
             double sum = 0.0;
             for (int tap = 0; tap < Taps; ++tap) {
-                const double displacement = tap - delay - fraction;
+                const double displacement = tap - delay + fraction;
                 const double kernel = displacement == 0.0
                     ? 2.0 * cutoff
                     : std::sin(2.0 * Pi * cutoff * displacement) /
