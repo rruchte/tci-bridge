@@ -236,188 +236,188 @@ bool exerciseCatAcknowledgements()
         });
     });
     if (!rigctld.listen(QHostAddress::LocalHost, 0))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     RigctldBackend radio(QStringLiteral("127.0.0.1"), rigctld.serverPort(), 250);
     if (!waitUntil([&] { return radio.online(); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     radio.setFrequencyHz(7300000);
     if (radio.frequencyHz() != 7100000 || !waitUntil([&] { return rejected; }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     radio.setFrequencyHz(7200000);
     if (radio.frequencyHz() != 7100000 ||
         !waitUntil([&] { return radio.frequencyHz() == 7200000; }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     TciServer bridge(&radio);
     bridge.setAllowPartialTxSensors(true);
     bridge.setTransmitEnabled(true);
     if (!bridge.listen(QHostAddress::LocalHost, 0))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     Client client(bridge.serverPort());
     if (!waitUntil([&] { return client.saw("tx_frequency:7200000;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     split = true;
     if (!waitUntil([&] { return radio.splitEnabled() && client.saw("tx_frequency:7250000;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     splitHz = 7260000;
     if (!waitUntil([&] { return client.saw("tx_frequency:7260000;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.messages.clear();
     split = false;
     if (!waitUntil([&] { return !radio.splitEnabled() && client.saw("tx_frequency:7200000;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.send("rit_enable:0;");
     client.send("xit_offset:0;");
     if (!waitUntil([&] { return client.saw("rit_enable:0,false;") &&
                                client.saw("xit_offset:0,150;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     Client observer(bridge.serverPort());
     if (!waitUntil([&] { return observer.saw("xit_offset:0,150;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("xit_enable:0,true;");
     client.send("rit_offset:0,-10000;");
     if (!waitUntil([&] { return observer.saw("xit_enable:0,true;") &&
                                observer.saw("rit_offset:0,-9999;") &&
                                observer.saw("xit_offset:0,-9999;") &&
                                observer.saw("tx_frequency:7190001;"); }) || ritEnabled)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.messages.clear();
     client.send("xit_offset:0,0;");
     if (!waitUntil([&] { return client.saw("xit_offset:0,0;") &&
                                client.saw("tx_frequency:7200000;"); }) || !xitEnabled)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     observer.messages.clear();
     ritEnabled = true;
     if (!waitUntil([&] { return observer.saw("rit_enable:0,true;"); }, 5500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     observer.send("drive:0;");
     if (!waitUntil([&] { return observer.saw("drive:0,25;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("drive:1,40;");
     client.send("drive:0,101;");
     client.send("drive:0,40;");
     if (!waitUntil([&] { return observer.saw("drive:0,38;"); }) ||
         powerWrites != QStringList{QStringLiteral("L RFPOWER 0.40")})
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.send("drive:0,60;");
     if (!waitUntil([&] { return powerWrites.size() == 2; }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.messages.clear();
     client.send("drive:0;");
     if (!waitUntil([&] { return client.saw("drive:0,38;"); }) || client.saw("drive:0,60;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     rfPower = 0.55;
     if (!waitUntil([&] { return observer.saw("drive:0,55;"); }, 5500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.send("agc_mode:0,invalid;");
     client.send("agc_mode:1,fast;");
     client.send("agc_mode:0,NORMAL;");
     if (!waitUntil([&] { return observer.saw("agc_mode:0,normal;"); }) ||
         agcWrites != QStringList{"L AGC 6", "L AGC 5"})
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     observer.messages.clear();
     observer.send("agc_mode:0,normal;");
     if (!waitUntil([&] { return observer.saw("agc_mode:0,normal;"); }) ||
         agcWrites.size() != 2)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     agc = 1; // Native SUPERFAST maps to TCI fast.
     if (!waitUntil([&] { return observer.saw("agc_mode:0,fast;"); }, 5500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("agc_mode:0,off;");
     if (!waitUntil([&] { return observer.saw("agc_mode:0,off;"); }) ||
         agcWrites.size() != 3 || agc != 0)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.messages.clear();
     client.send("rx_filter_band:0;");
     client.send("agc_mode:0;");
     if (!waitUntil([&] { return client.saw("agc_mode:0,off;"); }) || slopeReads != 0)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     // A width-only radio still delivers PCM to TCI subscribers.
     client.send("audio_start:0;");
     client.messages.clear();
     client.send("start;");
     if (!waitUntil([&] { return client.saw("vfo:0,0,7200000;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     bridge.sendRxAudio(QByteArray(4096, '\0'), 48000, 1);
     if (!waitUntil([&] { return !client.frames.isEmpty(); }) ||
         !client.frames.front().valid ||
         client.frames.front().streamType != TciStream::RX_AUDIO_STREAM ||
         !observer.frames.isEmpty())
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("audio_stop:0;");
 
     radio.setFilterEdgesHzEnabled(true);
     client.send("rx_filter_band:0;");
     if (!waitUntil([&] { return observer.saw("rx_filter_band:0,100,2700;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("rx_filter_band:0,200,2900;");
     if (!waitUntil([&] { return observer.saw("rx_filter_band:0,200,2700;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     receiveMode = "LSB";
     client.send("rx_filter_band:0,-2600,-300;");
     if (!waitUntil([&] { return observer.saw("rx_filter_band:0,-2600,-300;"); }) ||
         filterLow != 300 || filterHigh != 2600)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     filterHigh = 2800;
     if (!waitUntil([&] { return observer.saw("rx_filter_band:0,-2800,-300;"); }, 5500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.send("rx_nb_enable:0,true;");
     if (!waitUntil([&] { return observer.saw("rx_nb_enable:0,true;"); }) || !nbEnabled)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     const int previousNrReads = nrReads;
     client.send("rx_nr_enable:0;");
     if (!waitUntil([&] { return nrReads > previousNrReads; }) ||
         client.saw("rx_nr_enable:0,false;") || client.saw("rx_nr_enable:0,true;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     nrSupported = true;
     client.send("rx_nr_enable:0;");
     if (!waitUntil([&] { return observer.saw("rx_nr_enable:0,true;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("rx_nr_enable:0,false;");
     if (!waitUntil([&] { return observer.saw("rx_nr_enable:0,false;"); }) || nrMode != 0)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     nbEnabled = false;
     observer.messages.clear();
     if (!waitUntil([&] { return observer.saw("rx_nb_enable:0,false;"); }, 5500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     if (meterReads != 0)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("rx_sensors_enable:true,30;");
     if (!waitUntil([&] { return client.saw("rx_sensors:0,-91;") &&
                                client.saw("rx_channel_sensors:0,0,-91;"); }) ||
         observer.saw("rx_sensors:0,-91;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     observer.send("rx_sensors_enable:true,1000;");
     if (!waitUntil([&] { return observer.saw("rx_sensors:0,-91;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     client.send("rx_sensors_enable:false;");
     client.send("agc_mode:0;");
     client.messages.clear();
     if (!waitUntil([&] { return client.saw("agc_mode:0,off;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     frequency = 50000000;
     if (!waitUntil([&] { return observer.saw("rx_sensors:0,-111;"); }) ||
         client.saw("rx_sensors:0,-111;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     observer.messages.clear();
     meterSupported = false;
     const int previousReads = meterReads;
     if (!waitUntil([&] { return meterReads > previousReads; }) ||
         observer.saw("rx_sensors:0,-111;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     const quint16 catPort = rigctld.serverPort();
     const auto dropCat = [&] {
         rigctld.close();
@@ -427,41 +427,41 @@ bool exerciseCatAcknowledgements()
     observer.messages.clear();
     dropCat();
     if (!waitUntil([&] { return !radio.online() && observer.saw("tx_enable:0,false;"); }, 6500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     meterSupported = true;
     if (!rigctld.listen(QHostAddress::LocalHost, catPort) ||
         !waitUntil([&] { return radio.online() && observer.saw("tx_enable:0,true;") &&
                                observer.saw("rx_sensors:0,-111;"); }, 6500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     client.send("tx_sensors_enable:true,30;");
     if (txPowerReads != 0)
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     bool keyFailed = false;
     QObject::connect(&radio, &RadioBackend::pttCommandFailed, &rigctld,
                      [&](bool requested) { keyFailed = requested; });
     radio.setPtt(true);
     if (!waitUntil([&] { return keyFailed; }) || keyWrites != 1 || radio.ptt())
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     keyRequested = true;
     radio.setPtt(true);
     if (!waitUntil([&] { return radio.ptt() && client.saw("tx_sensors:0,nan,25.5,nan,1.4;"); }) ||
         observer.saw("tx_sensors:0,nan,25.5,nan,1.4;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     txPowerSupported = false;
     if (!waitUntil([&] { return client.saw("tx_sensors:0,nan,nan,nan,1.4;"); }))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     observer.messages.clear();
     dropCat();
     if (!waitUntil([&] { return !radio.online() && observer.saw("tx_enable:0,false;"); }, 6500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     rejectUnkey = true;
     const int unkeysBeforeReconnect = unkeyWrites;
     client.messages.clear();
     if (!rigctld.listen(QHostAddress::LocalHost, catPort) ||
         !waitUntil([&] { return radio.online() && unkeyWrites > unkeysBeforeReconnect; }, 6500))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     const int keysBeforeRetry = keyWrites;
     observer.messages.clear();
@@ -469,7 +469,7 @@ bool exerciseCatAcknowledgements()
     observer.send("tx_enable:0;");
     if (!waitUntil([&] { return observer.saw("tx_enable:0,false;"); }) ||
         keyWrites != keysBeforeRetry || client.saw("tx_sensors:0,nan,nan,nan,1.4;"))
-        return false;
+        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
 
     rejectUnkey = false;
     meterDb = -14;
