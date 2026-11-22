@@ -61,7 +61,15 @@ def main() -> None:
         for source in sorted(contents.rglob("*")):
             if not source.is_file() or source.is_symlink() or not is_macho(source):
                 continue
-            for old in dependencies(source):
+            for index, old in enumerate(dependencies(source)):
+                # A dylib's first otool entry is its own LC_ID_DYLIB, not
+                # an imported library. This includes multimedia plugin dylibs
+                # in Contents/PlugIns, which need not live in Frameworks.
+                if index == 0 and source.suffix == ".dylib" and Path(old).name == source.name:
+                    if homebrew(old):
+                        command("install_name_tool", "-id", "@rpath/" + source.name, str(source))
+                        changed = True
+                    continue
                 if old.startswith(("/System/", "/usr/lib/")) or old.startswith(("@loader_path/", "@executable_path/")):
                     continue
                 if not (homebrew(old) or old.startswith("@rpath/")):
@@ -130,7 +138,9 @@ def main() -> None:
     # Reject every remaining direct dependency on a build machine location.
     for source in sorted(contents.rglob("*")):
         if source.is_file() and not source.is_symlink() and is_macho(source):
-            for dep in dependencies(source):
+            for index, dep in enumerate(dependencies(source)):
+                if index == 0 and source.suffix == ".dylib" and Path(dep).name == source.name:
+                    continue
                 if homebrew(dep):
                     raise RuntimeError(f"Nonrelocatable dependency in {source}: {dep}")
                 if dep.startswith("@rpath/"):
