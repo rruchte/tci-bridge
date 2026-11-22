@@ -125,17 +125,27 @@ TciServer::TciServer(RadioBackend *radio, QObject *parent) :
 
 TciServer::~TciServer()
 {
+	// Retain the forced-unkey behavior while the radio backend is still alive.
 	stopTransmit(QStringLiteral("server shutdown"), true);
 
-	for (QWebSocket *client: std::as_const(clients_))
-	{
-		client->close();
-		client->deleteLater();
-	}
+	// Closing a socket can deliver its disconnected signal immediately.
+	// onSocketDisconnected() mutates client and meter subscription tables,
+	// so never invoke it while tearing those tables down or iterating clients_.
+	server_.close();
+	const auto clients = clients_;
+	for (QWebSocket *client : clients)
+		QObject::disconnect(client, nullptr, this, nullptr);
 
 	clients_.clear();
 	audio_clients_.clear();
 	audio_stream_clients_.clear();
+	rx_meter_clients_.clear();
+	tx_meter_clients_.clear();
+
+	for (QWebSocket *client : clients) {
+		client->close();
+		client->deleteLater();
+	}
 }
 
 bool TciServer::listen(const QHostAddress &address, quint16 port)
