@@ -1,0 +1,146 @@
+name: Build and publish TCI Bridge
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tci-bridge-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            runner: ubuntu-24.04
+            slug: linux-x64
+          - name: Linux ARM64 (Raspberry Pi 64-bit)
+            runner: ubuntu-24.04-arm
+            slug: linux-arm64
+          - name: macOS Intel
+            runner: macos-15-intel
+            slug: macos-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-websockets-dev qt6-multimedia-dev \
+            libyaml-cpp-dev
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew install cmake ninja qt yaml-cpp
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DTCI_BRIDGE_BUILD_TESTS=ON \
+              -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$(brew --prefix yaml-cpp)"
+          else
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DTCI_BRIDGE_BUILD_TESTS=ON
+          fi
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Run protocol tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke-test CLI and example config
+        shell: bash
+        run: |
+          ./build/tci-bridge --version
+          ./build/tci-bridge --help
+          ./build/tci-bridge --check-config --config examples/tci-bridge.yml
+
+      - name: Record linked libraries
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            otool -L build/tci-bridge
+          else
+            ldd build/tci-bridge
+          fi
+
+      - name: Assemble distribution
+        shell: bash
+        env:
+          SLUG: ${{ matrix.slug }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/tci-bridge/examples/systemd dist/tci-bridge/docs
+          cp build/tci-bridge README.md dist/tci-bridge/
+          cp examples/tci-bridge.yml examples/INSTALL-systemd.md dist/tci-bridge/examples/
+          cp examples/systemd/tci-bridge.service dist/tci-bridge/examples/systemd/
+          cp docs/protocol-subset.md docs/releasing.md dist/tci-bridge/docs/
+          chmod +x dist/tci-bridge/tci-bridge
+          tar -czf "tci-bridge-${SLUG}.tar.gz" -C dist tci-bridge
+
+      - name: Upload distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: tci-bridge-${{ matrix.slug }}
+          path: tci-bridge-${{ matrix.slug }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Validate artifacts and publish tagged release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tci-bridge-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify archives and generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in linux-x64 linux-arm64 macos-x64; do
+            archive="release/tci-bridge-${platform}.tar.gz"
+            test -s "$archive"
+            tar -tzf "$archive" | grep -Fxq 'tci-bridge/tci-bridge'
+            tar -tzf "$archive" | grep -Fxq 'tci-bridge/examples/tci-bridge.yml'
+          done
+          (cd release && sha256sum tci-bridge-*.tar.gz > SHA256SUMS)
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/tci-bridge-linux-x64.tar.gz
+            release/tci-bridge-linux-arm64.tar.gz
+            release/tci-bridge-macos-x64.tar.gz
+            release/SHA256SUMS
+          fail_on_unmatched_files: true
+          generate_release_notes: true
