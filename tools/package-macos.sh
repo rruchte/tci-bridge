@@ -23,7 +23,22 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 PLIST
 
 qt_prefix="$(brew --prefix qt)"
-"$qt_prefix/bin/macdeployqt" "$app" -verbose=1
+plugin_dir="$("$qt_prefix/bin/qtpaths" --query QT_INSTALL_PLUGINS)"
+if [[ ! -d "$plugin_dir/multimedia" ]]; then
+  echo "ERROR: Qt multimedia plugins missing at $plugin_dir/multimedia" >&2
+  exit 1
+fi
+
+# A headless bridge needs multimedia backends, not Qt's entire QML, image,
+# icon, platform input or PDF plugin collection. macdeployqt's default plugin
+# deployment pulls those in on Homebrew and leaves broken transitive paths.
+mkdir -p "$app/Contents/PlugIns"
+cp -R "$plugin_dir/multimedia" "$app/Contents/PlugIns/multimedia"
+plugin_executables=()
+while IFS= read -r -d '' plugin; do
+  plugin_executables+=("-executable=$plugin")
+done < <(find "$app/Contents/PlugIns/multimedia" -name '*.dylib' -type f -print0)
+"$qt_prefix/bin/macdeployqt" "$app" -no-plugins "${plugin_executables[@]}" -verbose=1
 
 # macdeployqt may not copy Homebrew's separate yaml-cpp dependency.
 yaml_dep="$(otool -L "$app/Contents/MacOS/tci-bridge" | awk '/libyaml-cpp.*\.dylib/ { print $1; exit }')"
@@ -64,3 +79,4 @@ done < <(find "$app" -type f -print0)
 # Exercise the packaged executable, not the original build tree.
 "$destination/tci-bridge" --version
 "$destination/tci-bridge" --help
+"$destination/tci-bridge" --list-audio-devices
