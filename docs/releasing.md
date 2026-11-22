@@ -36,15 +36,19 @@ Pushing a fresh `v*` tag rebuilds the four targets and attaches:
 - `tci-bridge-macos-arm64.tar.gz`
 - `SHA256SUMS`
 
-Each archive has the daemon, example YAML configuration, systemd example,
+Each archive has the daemon (on macOS, a launcher and bundled application), example YAML configuration, systemd example,
 installation instructions and protocol documentation.
 
 ## Runtime requirements
 
-These archives contain **dynamically linked binaries**, not universal or
-self-contained installers. On Ubuntu 24.04, install the matching runtime
-packages (Qt 6 Core, Network, WebSockets, Multimedia and yaml-cpp).
-On macOS Intel or Apple Silicon, `brew install qt yaml-cpp` provides the required libraries.
+Linux archives contain dynamically linked binaries: on Ubuntu 24.04, install the matching
+Qt 6 Core, Network, WebSockets, Multimedia and yaml-cpp runtime packages.
+macOS Intel and Apple Silicon archives bundle the Qt frameworks, plugins,
+and yaml-cpp within `tci-bridge.app` and provide a root-level `./tci-bridge`
+launcher. Keep the app bundle and launcher together when relocating the archive.
+Homebrew is needed for building from source, not for running the packaged macOS binary.
+The macOS app is ad-hoc signed, not Developer ID signed or notarized; Gatekeeper
+may require explicit approval before first launch.
 For Linux ARM64, the build uses an Ubuntu 24.04 baseline; verify the Pi's
 userspace glibc, Qt, and library compatibility rather than assuming the
 binary works on every Raspberry Pi OS release.
