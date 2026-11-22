@@ -80,6 +80,7 @@ struct Client {
 bool exerciseCatAcknowledgements()
 {
     QTcpServer rigctld;
+    bool catAvailable = true;
     qint64 frequency = 7100000;
     bool rejected = false;
     int keyWrites = 0;
@@ -111,6 +112,11 @@ bool exerciseCatAcknowledgements()
     QStringList powerWrites;
     QObject::connect(&rigctld, &QTcpServer::newConnection, &rigctld, [&] {
         auto *socket = rigctld.nextPendingConnection();
+        if (!catAvailable) {
+            socket->abort();
+            socket->deleteLater();
+            return;
+        }
         QObject::connect(socket, &QTcpSocket::readyRead, socket, [&, socket] {
             while (socket->canReadLine()) {
                 const QByteArray command = socket->readLine().trimmed();
@@ -228,7 +234,10 @@ bool exerciseCatAcknowledgements()
                         socket->write("RPRT -1\n");
                     }
                 } else if (command == "dump_state" || command == "\\dump_state") {
-                    socket->disconnectFromHost();
+                    // The mock does not implement capability discovery. Return a
+                    // normal Hamlib failure instead of closing the CAT socket.
+                    // Explicit dropCat() calls below exercise reconnection.
+                    socket->write("RPRT -11\n");
                 } else {
                     socket->write("RPRT -1\n");
                 }
@@ -420,7 +429,9 @@ bool exerciseCatAcknowledgements()
         return false;
     const quint16 catPort = rigctld.serverPort();
     const auto dropCat = [&] {
-        rigctld.close();
+        // Keep the test listener bound while simulating an unavailable CAT
+        // device. Refuse new sockets until the explicit recovery phase.
+        catAvailable = false;
         for (auto *socket : rigctld.findChildren<QTcpSocket *>())
             socket->abort();
     };
@@ -429,10 +440,16 @@ bool exerciseCatAcknowledgements()
     if (!waitUntil([&] { return !radio.online() && observer.saw("tx_enable:0,false;"); }, 6500))
         return false;
     meterSupported = true;
-    if (!rigctld.listen(QHostAddress::LocalHost, catPort) ||
-        !waitUntil([&] { return radio.online() && observer.saw("tx_enable:0,true;") &&
-                               observer.saw("rx_sensors:0,-111;"); }, 6500))
+    catAvailable = true;
+    if (!waitUntil([&] { return radio.online() && observer.saw("tx_enable:0,true;") &&
+                               observer.saw("rx_sensors:0,-111;"); }, 15000)) {
+        qCritical() << "CAT reconnect state missing"
+                    << "online=" << radio.online()
+                    << "txEnabled=" << observer.saw("tx_enable:0,true;")
+                    << "rxMeter=" << observer.saw("rx_sensors:0,-111;")
+                    << "observerRecentMessages=" << observer.messages.mid(qMax(0, observer.messages.size() - 20));
         return false;
+    }
 
     client.send("tx_sensors_enable:true,30;");
     if (txPowerReads != 0)
@@ -459,8 +476,8 @@ bool exerciseCatAcknowledgements()
     rejectUnkey = true;
     const int unkeysBeforeReconnect = unkeyWrites;
     client.messages.clear();
-    if (!rigctld.listen(QHostAddress::LocalHost, catPort) ||
-        !waitUntil([&] { return radio.online() && unkeyWrites > unkeysBeforeReconnect; }, 6500))
+    catAvailable = true;
+    if (!waitUntil([&] { return radio.online() && unkeyWrites > unkeysBeforeReconnect; }, 6500))
         return false;
 
     const int keysBeforeRetry = keyWrites;

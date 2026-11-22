@@ -31,6 +31,9 @@ jobs:
           - name: macOS Intel
             runner: macos-15-intel
             slug: macos-x64
+          - name: macOS Apple Silicon
+            runner: macos-15
+            slug: macos-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +60,7 @@ jobs:
             cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DTCI_BRIDGE_BUILD_TESTS=ON \
+              -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
               -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$(brew --prefix yaml-cpp)"
           else
             cmake -S . -B build -G Ninja \
@@ -86,6 +90,18 @@ jobs:
           ./build/tci-bridge --help
           ./build/tci-bridge --check-config --config examples/tci-bridge.yml
 
+      - name: Verify native build architecture
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            expected="$(uname -m)"
+            actual="$(lipo -archs build/tci-bridge)"
+            echo "Expected: $expected; binary: $actual"
+            test "$actual" = "$expected"
+          else
+            file build/tci-bridge
+          fi
+
       - name: Record linked libraries
         shell: bash
         run: |
@@ -102,11 +118,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/tci-bridge/examples/systemd dist/tci-bridge/docs
-          cp build/tci-bridge README.md dist/tci-bridge/
+          cp README.md dist/tci-bridge/
           cp examples/tci-bridge.yml examples/INSTALL-systemd.md dist/tci-bridge/examples/
           cp examples/systemd/tci-bridge.service dist/tci-bridge/examples/systemd/
           cp docs/protocol-subset.md docs/releasing.md dist/tci-bridge/docs/
-          chmod +x dist/tci-bridge/tci-bridge
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bash tools/package-macos.sh build/tci-bridge dist/tci-bridge
+          else
+            cp build/tci-bridge dist/tci-bridge/tci-bridge
+            chmod +x dist/tci-bridge/tci-bridge
+          fi
           tar -czf "tci-bridge-${SLUG}.tar.gz" -C dist tci-bridge
 
       - name: Upload distribution
@@ -134,12 +155,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for platform in linux-x64 linux-arm64 macos-x64; do
+          for platform in linux-x64 linux-arm64 macos-x64 macos-arm64; do
             archive="release/tci-bridge-${platform}.tar.gz"
             test -s "$archive"
             listing="$(tar -tzf "$archive")"
             grep -Fxq 'tci-bridge/tci-bridge' <<< "$listing"
             grep -Fxq 'tci-bridge/examples/tci-bridge.yml' <<< "$listing"
+            if [[ "$platform" == macos-* ]]; then
+              grep -Fxq 'tci-bridge/tci-bridge.app/Contents/MacOS/tci-bridge' <<< "$listing"
+              grep -Eq 'tci-bridge/tci-bridge.app/Contents/Frameworks/.*QtWebSockets' <<< "$listing"
+            fi
           done
           (cd release && sha256sum tci-bridge-*.tar.gz > SHA256SUMS)
 
@@ -151,6 +176,7 @@ jobs:
             release/tci-bridge-linux-x64.tar.gz
             release/tci-bridge-linux-arm64.tar.gz
             release/tci-bridge-macos-x64.tar.gz
+            release/tci-bridge-macos-arm64.tar.gz
             release/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
