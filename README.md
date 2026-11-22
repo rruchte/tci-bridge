@@ -18,7 +18,7 @@ audio formats, driver-dependent behavior, and extensions.
 ## CI builds and releases
 
 GitHub Actions compiles and tests the bridge on Linux x64, Linux ARM64
-(including Raspberry Pi 64-bit userspace), and Intel macOS. On a new
+(including Raspberry Pi 64-bit userspace), and macOS Intel and Apple Silicon and Apple Silicon. On a new
 `v*` tag it publishes platform-specific `tar.gz` archives and SHA-256 checksums
 to [GitHub Releases](https://github.com/rruchte/tci-bridge/releases).
 
