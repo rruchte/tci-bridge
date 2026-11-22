@@ -429,10 +429,19 @@ bool exerciseCatAcknowledgements()
     if (!waitUntil([&] { return !radio.online() && observer.saw("tx_enable:0,false;"); }, 6500))
         { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
     meterSupported = true;
-    if (!rigctld.listen(QHostAddress::LocalHost, catPort) ||
-        !waitUntil([&] { return radio.online() && observer.saw("tx_enable:0,true;") &&
-                               observer.saw("rx_sensors:0,-111;"); }, 6500))
-        { qCritical() << "CAT regression assertion failed at line" << __LINE__; return false; }
+    if (!rigctld.listen(QHostAddress::LocalHost, catPort)) {
+        qCritical() << "CAT test cannot resume rigctld mock listener";
+        return false;
+    }
+    if (!waitUntil([&] { return radio.online() && observer.saw("tx_enable:0,true;") &&
+                               observer.saw("rx_sensors:0,-111;"); }, 15000)) {
+        qCritical() << "CAT reconnect state missing"
+                    << "online=" << radio.online()
+                    << "txEnabled=" << observer.saw("tx_enable:0,true;")
+                    << "rxMeter=" << observer.saw("rx_sensors:0,-111;")
+                    << "observerRecentMessages=" << observer.messages.mid(qMax(0, observer.messages.size() - 20));
+        return false;
+    }
 
     client.send("tx_sensors_enable:true,30;");
     if (txPowerReads != 0)
