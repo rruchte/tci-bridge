@@ -68,7 +68,16 @@ jobs:
         run: cmake --build build --parallel 2
 
       - name: Run protocol tests
-        run: ctest --test-dir build --output-on-failure
+        shell: bash
+        run: |
+          if ! ctest --test-dir build --output-on-failure; then
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+              echo "Collecting macOS test crash backtrace:"
+              lldb --batch -o run -o "thread backtrace all" -- ./build/tci-server-tests || true
+              find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -iname '*tci-server-tests*' -type f -print -exec tail -n 120 {} \; 2>/dev/null || true
+            fi
+            exit 1
+          fi
 
       - name: Smoke-test CLI and example config
         shell: bash
