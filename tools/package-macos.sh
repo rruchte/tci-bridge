@@ -33,11 +33,16 @@ fi
 # icon, platform input or PDF plugin collection. macdeployqt's default plugin
 # deployment pulls those in on Homebrew and leaves broken transitive paths.
 mkdir -p "$app/Contents/PlugIns"
-cp -R "$plugin_dir/multimedia" "$app/Contents/PlugIns/multimedia"
+cp -RL "$plugin_dir/multimedia" "$app/Contents/PlugIns/multimedia"
 plugin_executables=()
 while IFS= read -r -d '' plugin; do
   plugin_executables+=("-executable=$plugin")
-done < <(find "$app/Contents/PlugIns/multimedia" -name '*.dylib' -type f -print0)
+done < <(find -L "$app/Contents/PlugIns/multimedia" -name '*.dylib' -type f -print0)
+if (( ${#plugin_executables[@]} == 0 )); then
+  echo "ERROR: No Qt multimedia plugin dylibs found in $plugin_dir/multimedia" >&2
+  find -L "$plugin_dir/multimedia" -maxdepth 2 -print >&2
+  exit 1
+fi
 "$qt_prefix/bin/macdeployqt" "$app" -no-plugins "${plugin_executables[@]}" -verbose=1
 
 # macdeployqt may not copy Homebrew's separate yaml-cpp dependency.
