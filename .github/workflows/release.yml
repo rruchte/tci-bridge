@@ -118,11 +118,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/tci-bridge/examples/systemd dist/tci-bridge/docs
-          cp build/tci-bridge README.md dist/tci-bridge/
+          cp README.md dist/tci-bridge/
           cp examples/tci-bridge.yml examples/INSTALL-systemd.md dist/tci-bridge/examples/
           cp examples/systemd/tci-bridge.service dist/tci-bridge/examples/systemd/
           cp docs/protocol-subset.md docs/releasing.md dist/tci-bridge/docs/
-          chmod +x dist/tci-bridge/tci-bridge
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bash tools/package-macos.sh build/tci-bridge dist/tci-bridge
+          else
+            cp build/tci-bridge dist/tci-bridge/tci-bridge
+            chmod +x dist/tci-bridge/tci-bridge
+          fi
           tar -czf "tci-bridge-${SLUG}.tar.gz" -C dist tci-bridge
 
       - name: Upload distribution
@@ -156,6 +161,10 @@ jobs:
             listing="$(tar -tzf "$archive")"
             grep -Fxq 'tci-bridge/tci-bridge' <<< "$listing"
             grep -Fxq 'tci-bridge/examples/tci-bridge.yml' <<< "$listing"
+            if [[ "$platform" == macos-* ]]; then
+              grep -Fxq 'tci-bridge/tci-bridge.app/Contents/MacOS/tci-bridge' <<< "$listing"
+              grep -Eq 'tci-bridge/tci-bridge.app/Contents/Frameworks/.*QtWebSockets' <<< "$listing"
+            fi
           done
           (cd release && sha256sum tci-bridge-*.tar.gz > SHA256SUMS)
 
