@@ -7,7 +7,7 @@ Windows is intentionally excluded: the current Unix signal-handling code uses
 
 ## Continuous integration
 
-Pull requests and pushes to `main` build all three targets, enable
+Pull requests and pushes to `main` build all four targets, enable
 `TCI_BRIDGE_BUILD_TESTS=ON`, run both protocol test executables through CTest,
 verify `--help`, `--version`, and `--check-config`, then validate each archive.
 
@@ -19,8 +19,7 @@ before creating a release tag.
 
 ## Publish a new version
 
-The existing `v0.5.0`, `v0.5.1`, and `v0.6.0` tags must not be reused.
-The existing `v0.6.2` release is already published. Choose the next unused tag (for example `v0.6.2`) after verifying all packages:
+The existing `v0.5.0`, `v0.5.1`, `v0.6.0`, and `v0.6.1` tags must not be reused. Choose the next unused tag (for example `v0.6.2`) after verifying all packages:
 
 ```bash
 git switch main
@@ -29,7 +28,7 @@ git tag -a v0.6.2 -m "TCI Bridge v0.6.2"
 git push origin v0.6.2
 ```
 
-Pushing a fresh `v*` tag rebuilds the three targets and attaches:
+Pushing a fresh `v*` tag rebuilds the four targets and attaches:
 
 - `tci-bridge-linux-x64.tar.gz`
 - `tci-bridge-linux-arm64.tar.gz`
