@@ -15,6 +15,22 @@ meters where the Hamlib driver supplies the required data. The
 [hardware-radio profile](docs/protocol-subset.md) lists the commands,
 audio formats, driver-dependent behavior, and extensions.
 
+## CI builds and releases
+
+GitHub Actions compiles and tests the bridge on Linux x64, Linux ARM64
+(including Raspberry Pi 64-bit userspace), and Intel macOS. On a new
+`v*` tag it publishes platform-specific `tar.gz` archives and SHA-256 checksums
+to [GitHub Releases](https://github.com/rruchte/tci-bridge/releases).
+
+These archives are **not fully self-contained**. They require compatible
+Qt 6 and yaml-cpp runtime libraries. The ARM64 archive is built on Ubuntu
+24.04; compatibility with a particular Raspberry Pi OS image must be tested.
+The `rigctld` daemon and radio configuration are not bundled.
+
+See [release and platform instructions](docs/releasing.md). Hardware-free
+protocol tests run in CI, but RX/TX audio, CAT/PTT, TX watchdog and
+reconnection must still be checked on an actual setup before a release.
+
 ## Requirements
 
 Runtime:
