@@ -18,13 +18,16 @@ audio formats, driver-dependent behavior, and extensions.
 ## CI builds and releases
 
 GitHub Actions compiles and tests the bridge on Linux x64, Linux ARM64
-(including Raspberry Pi 64-bit userspace), and macOS Intel and Apple Silicon and Apple Silicon. On a new
+(including Raspberry Pi 64-bit userspace), and macOS Intel and Apple Silicon. On a new
 `v*` tag it publishes platform-specific `tar.gz` archives and SHA-256 checksums
 to [GitHub Releases](https://github.com/rruchte/tci-bridge/releases).
 
-These archives are **not fully self-contained**. They require compatible
-Qt 6 and yaml-cpp runtime libraries. The ARM64 archive is built on Ubuntu
-24.04; compatibility with a particular Raspberry Pi OS image must be tested.
+The macOS archives bundle the Qt frameworks, multimedia plugins, and yaml-cpp
+in a command-line application bundle. Run the included `./tci-bridge` launcher
+from the extracted directory (keep `tci-bridge.app` alongside it); Homebrew
+is not required for the bundled dependencies. The Linux archives remain
+dynamically linked and require compatible runtime libraries. The ARM64 Linux
+archive is built on Ubuntu 24.04; verify compatibility with Raspberry Pi OS.
 The `rigctld` daemon and radio configuration are not bundled.
 
 See [release and platform instructions](docs/releasing.md). Hardware-free
