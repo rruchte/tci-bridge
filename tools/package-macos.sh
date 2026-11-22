@@ -66,20 +66,12 @@ exec "$here/tci-bridge.app/Contents/MacOS/tci-bridge" "$@"
 LAUNCHER
 chmod +x "$destination/tci-bridge"
 
-# Ad-hoc sign after changes to Mach-O install names (required on Apple Silicon).
-codesign --force --deep --sign - "$app"
+# Relocate every copied Mach-O dependency, including Homebrew's embedded Qt
+# framework IDs and non-Qt shared libraries required by multimedia plugins.
+python3 tools/relocate-macos.py "$app"
 
-# Every dependency of every bundled Mach-O must resolve via a system path
-# or a relocatable @rpath/@loader_path/@executable_path reference.
-while IFS= read -r -d '' item; do
-  if file -b "$item" | grep -q 'Mach-O'; then
-    deps="$(otool -L "$item")"
-    if grep -E '^[[:space:]]+/(opt/homebrew|usr/local/(opt|Cellar|lib))/' <<< "$deps"; then
-      echo "ERROR: nonrelocatable Homebrew dependency in $item" >&2
-      exit 1
-    fi
-  fi
-done < <(find "$app" -type f -print0)
+# Ad-hoc sign after all install_name_tool changes (required on Apple Silicon).
+codesign --force --deep --sign - "$app"
 
 # Exercise the packaged executable, not the original build tree.
 "$destination/tci-bridge" --version
