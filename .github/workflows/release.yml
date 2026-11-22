@@ -137,8 +137,9 @@ jobs:
           for platform in linux-x64 linux-arm64 macos-x64; do
             archive="release/tci-bridge-${platform}.tar.gz"
             test -s "$archive"
-            tar -tzf "$archive" | grep -Fxq 'tci-bridge/tci-bridge'
-            tar -tzf "$archive" | grep -Fxq 'tci-bridge/examples/tci-bridge.yml'
+            listing="$(tar -tzf "$archive")"
+            grep -Fxq 'tci-bridge/tci-bridge' <<< "$listing"
+            grep -Fxq 'tci-bridge/examples/tci-bridge.yml' <<< "$listing"
           done
           (cd release && sha256sum tci-bridge-*.tar.gz > SHA256SUMS)
 
